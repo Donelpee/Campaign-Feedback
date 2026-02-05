@@ -25,7 +25,9 @@ import {
   Star,
   ThumbsUp,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 interface Metrics {
   totalCompanies: number;
@@ -55,12 +57,34 @@ const areaLabels: Record<string, string> = {
 export function DashboardOverview() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   useEffect(() => {
     loadMetrics();
+
+    // Subscribe to realtime updates on feedback_responses
+    const channel = supabase
+      .channel('feedback-dashboard')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'feedback_responses',
+        },
+        () => {
+          loadMetrics();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadMetrics = async () => {
+    setIsLoading(true);
     try {
       // Get counts
       const [companiesRes, campaignsRes, responsesRes] = await Promise.all([
@@ -147,6 +171,7 @@ export function DashboardOverview() {
         satisfactionDistribution,
         improvementAreas,
       });
+      setLastUpdated(new Date());
     } catch (error) {
       console.error('Error loading metrics:', error);
     } finally {
@@ -169,6 +194,14 @@ export function DashboardOverview() {
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
         <h1 className="font-semibold text-lg">Dashboard Overview</h1>
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            Last updated: {lastUpdated.toLocaleTimeString()}
+          </span>
+          <Button variant="ghost" size="icon" onClick={loadMetrics} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </header>
 
       {/* Content */}
