@@ -21,7 +21,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
-import { Download, Loader2, FileText, Star } from 'lucide-react';
+import { Download, Loader2, FileText, Star, RefreshCw } from 'lucide-react';
 import type { Company, Campaign } from '@/lib/supabase-types';
 
 interface ResponseWithDetails {
@@ -61,6 +61,26 @@ export function ResponsesViewer() {
 
   useEffect(() => {
     loadData();
+
+    // Subscribe to realtime updates
+    const channel = supabase
+      .channel('feedback-responses')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'feedback_responses',
+        },
+        () => {
+          loadData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const loadData = async () => {
@@ -205,6 +225,9 @@ export function ResponsesViewer() {
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
         <h1 className="font-semibold text-lg">Responses</h1>
+        <Button variant="ghost" size="icon" onClick={loadData} className="ml-auto" disabled={isLoading}>
+          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+        </Button>
       </header>
 
       {/* Content */}
