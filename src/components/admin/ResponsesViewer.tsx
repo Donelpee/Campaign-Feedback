@@ -22,7 +22,9 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Download, Loader2, FileText, Star, RefreshCw } from 'lucide-react';
+import { FileSpreadsheet } from 'lucide-react';
 import type { Company, Campaign } from '@/lib/supabase-types';
+import { exportToExcel } from '@/lib/excel-export';
 
 interface ResponseWithDetails {
   id: string;
@@ -58,6 +60,7 @@ export function ResponsesViewer() {
   const [isLoading, setIsLoading] = useState(true);
   const [filterCompany, setFilterCompany] = useState<string>('all');
   const [filterCampaign, setFilterCampaign] = useState<string>('all');
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -198,6 +201,48 @@ export function ResponsesViewer() {
     });
   };
 
+  const handleExportExcel = async () => {
+    if (filteredResponses.length === 0) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'No responses to export.',
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const data = filteredResponses.map(r => ({
+        id: r.id,
+        overall_satisfaction: r.overall_satisfaction,
+        service_quality: r.service_quality,
+        recommendation_likelihood: r.recommendation_likelihood,
+        improvement_areas: r.improvement_areas,
+        additional_comments: r.additional_comments,
+        created_at: r.created_at,
+        company_name: r.link.company.name,
+        campaign_name: r.link.campaign.name,
+      }));
+
+      await exportToExcel(data, `feedback-report-${new Date().toISOString().split('T')[0]}.xlsx`);
+
+      toast({
+        title: 'Success',
+        description: 'Excel report with charts downloaded successfully.',
+      });
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Failed to generate Excel report.',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const renderStars = (value: number, max: number = 5) => {
     return (
       <div className="flex gap-0.5">
@@ -272,6 +317,15 @@ export function ResponsesViewer() {
               <Button onClick={handleExportCSV}>
                 <Download className="mr-2 h-4 w-4" />
                 Export CSV
+              </Button>
+
+              <Button onClick={handleExportExcel} disabled={isExporting} variant="secondary">
+                {isExporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                )}
+                Export Excel
               </Button>
             </div>
           </CardHeader>
