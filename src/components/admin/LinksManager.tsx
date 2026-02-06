@@ -90,8 +90,12 @@ export function LinksManager() {
           campaign: link.campaign as unknown as Campaign,
         }))
       );
-      setCompanies(companiesRes.data || []);
-      setCampaigns(campaignsRes.data || []);
+      setCompanies((companiesRes.data || []) as Company[]);
+      setCampaigns((campaignsRes.data || []).map(c => ({
+        ...c,
+        campaign_type: c.campaign_type as Campaign['campaign_type'],
+        questions: (c.questions || []) as unknown as Campaign['questions'],
+      })));
     } catch (error) {
       console.error('Error loading data:', error);
       toast({

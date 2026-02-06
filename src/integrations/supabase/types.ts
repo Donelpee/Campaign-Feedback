@@ -16,29 +16,35 @@ export type Database = {
     Tables: {
       campaigns: {
         Row: {
+          campaign_type: string | null
           created_at: string
           description: string | null
           end_date: string
           id: string
           name: string
+          questions: Json | null
           start_date: string
           updated_at: string
         }
         Insert: {
+          campaign_type?: string | null
           created_at?: string
           description?: string | null
           end_date: string
           id?: string
           name: string
+          questions?: Json | null
           start_date: string
           updated_at?: string
         }
         Update: {
+          campaign_type?: string | null
           created_at?: string
           description?: string | null
           end_date?: string
           id?: string
           name?: string
+          questions?: Json | null
           start_date?: string
           updated_at?: string
         }
@@ -49,6 +55,7 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
+          logo_url: string | null
           name: string
           updated_at: string
         }
@@ -56,6 +63,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          logo_url?: string | null
           name: string
           updated_at?: string
         }
@@ -63,6 +71,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           id?: string
+          logo_url?: string | null
           name?: string
           updated_at?: string
         }
