@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import { Plus, Pencil, Trash2, Loader2, Building2 } from 'lucide-react';
+import { LogoUpload } from './LogoUpload';
 import type { Company } from '@/lib/supabase-types';
 
 export function CompaniesManager() {
@@ -34,7 +36,7 @@ export function CompaniesManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '' });
+  const [formData, setFormData] = useState({ name: '', description: '', logo_url: '' as string | null });
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -65,10 +67,14 @@ export function CompaniesManager() {
   const handleOpenDialog = (company?: Company) => {
     if (company) {
       setEditingCompany(company);
-      setFormData({ name: company.name, description: company.description || '' });
+      setFormData({ 
+        name: company.name, 
+        description: company.description || '',
+        logo_url: company.logo_url || null,
+      });
     } else {
       setEditingCompany(null);
-      setFormData({ name: '', description: '' });
+      setFormData({ name: '', description: '', logo_url: null });
     }
     setIsDialogOpen(true);
   };
@@ -92,6 +98,7 @@ export function CompaniesManager() {
           .update({
             name: formData.name.trim(),
             description: formData.description.trim() || null,
+            logo_url: formData.logo_url,
           })
           .eq('id', editingCompany.id);
 
@@ -105,6 +112,7 @@ export function CompaniesManager() {
         const { error } = await supabase.from('companies').insert({
           name: formData.name.trim(),
           description: formData.description.trim() || null,
+          logo_url: formData.logo_url,
         });
 
         if (error) throw error;
@@ -194,6 +202,14 @@ export function CompaniesManager() {
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
+                    <Label>Company Logo</Label>
+                    <LogoUpload
+                      logoUrl={formData.logo_url}
+                      companyName={formData.name || 'Company'}
+                      onUpload={(url) => setFormData({ ...formData, logo_url: url })}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="name">Company Name</Label>
                     <Input
                       id="name"
@@ -255,7 +271,7 @@ export function CompaniesManager() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Name</TableHead>
+                    <TableHead>Company</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Created</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -264,7 +280,17 @@ export function CompaniesManager() {
                 <TableBody>
                   {companies.map((company) => (
                     <TableRow key={company.id}>
-                      <TableCell className="font-medium">{company.name}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-9 w-9 rounded-md">
+                            <AvatarImage src={company.logo_url || undefined} alt={company.name} className="object-cover" />
+                            <AvatarFallback className="rounded-md bg-muted">
+                              <Building2 className="h-4 w-4 text-muted-foreground" />
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="font-medium">{company.name}</span>
+                        </div>
+                      </TableCell>
                       <TableCell className="text-muted-foreground">
                         {company.description || '—'}
                       </TableCell>

@@ -7,14 +7,29 @@ export interface Company {
   id: string;
   name: string;
   description: string | null;
+  logo_url: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type CampaignType = 'feedback' | 'employee_survey' | 'product_research' | 'event_evaluation';
+
+export interface CampaignQuestion {
+  id: string;
+  type: 'rating' | 'scale' | 'multiple_choice' | 'text' | 'nps';
+  question: string;
+  required: boolean;
+  options?: string[];
+  min?: number;
+  max?: number;
 }
 
 export interface Campaign {
   id: string;
   name: string;
   description: string | null;
+  campaign_type: CampaignType;
+  questions: CampaignQuestion[];
   start_date: string;
   end_date: string;
   created_at: string;
