@@ -14,6 +14,7 @@ import type { FeedbackFormData } from '@/lib/supabase-types';
 interface LinkData {
   id: string;
   company_name: string;
+  company_logo_url: string | null;
   campaign_name: string;
   is_active: boolean;
   start_date: string;
@@ -46,16 +47,7 @@ export default function FeedbackForm() {
 
   const loadLinkData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('company_campaign_links')
-        .select(`
-          id,
-          is_active,
-          companies:company_id (name),
-          campaigns:campaign_id (name, start_date, end_date)
-        `)
-        .eq('unique_code', code)
-        .single();
+      const { data, error } = await supabase.rpc('get_feedback_link_data', { p_code: code! });
 
       if (error || !data) {
         setError('This feedback link is not valid.');
@@ -63,18 +55,25 @@ export default function FeedbackForm() {
         return;
       }
 
-      const companiesData = data.companies as unknown as { name: string };
-      const campaignsData = data.campaigns as unknown as { name: string; start_date: string; end_date: string };
+      const linkInfo = data as unknown as {
+        id: string;
+        is_active: boolean;
+        company_name: string;
+        company_logo_url: string | null;
+        campaign_name: string;
+        start_date: string;
+        end_date: string;
+      };
 
-      if (!data.is_active) {
+      if (!linkInfo.is_active) {
         setError('This feedback form is no longer accepting responses.');
         setIsLoading(false);
         return;
       }
 
       const now = new Date();
-      const startDate = new Date(campaignsData.start_date);
-      const endDate = new Date(campaignsData.end_date);
+      const startDate = new Date(linkInfo.start_date);
+      const endDate = new Date(linkInfo.end_date);
 
       if (now < startDate) {
         setError('This feedback campaign has not started yet.');
@@ -88,14 +87,7 @@ export default function FeedbackForm() {
         return;
       }
 
-      setLinkData({
-        id: data.id,
-        company_name: companiesData.name,
-        campaign_name: campaignsData.name,
-        is_active: data.is_active,
-        start_date: campaignsData.start_date,
-        end_date: campaignsData.end_date,
-      });
+      setLinkData(linkInfo);
       setIsLoading(false);
     } catch (err) {
       console.error('Error loading link data:', err);
@@ -198,10 +190,18 @@ export default function FeedbackForm() {
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-primary mb-4">
-            <Building2 className="h-4 w-4" />
-            <span className="font-medium">{linkData?.company_name}</span>
-          </div>
+          {linkData?.company_logo_url ? (
+            <img
+              src={linkData.company_logo_url}
+              alt={`${linkData.company_name} logo`}
+              className="h-16 w-auto mx-auto mb-4 object-contain"
+            />
+          ) : (
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-primary mb-4">
+              <Building2 className="h-4 w-4" />
+              <span className="font-medium">{linkData?.company_name}</span>
+            </div>
+          )}
           <h1 className="text-3xl font-bold text-foreground">
             {linkData?.campaign_name}
           </h1>
