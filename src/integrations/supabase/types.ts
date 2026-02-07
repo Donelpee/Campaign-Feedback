@@ -216,6 +216,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_feedback_link_data: { Args: { p_code: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
