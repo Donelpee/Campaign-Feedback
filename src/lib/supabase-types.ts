@@ -2,6 +2,7 @@
 // These extend the auto-generated types for better type safety
 
 export type AppRole = 'admin' | 'super_admin';
+export type AdminPermission = 'overview' | 'companies' | 'campaigns' | 'links' | 'responses' | 'users' | 'settings';
 
 export interface Company {
   id: string;

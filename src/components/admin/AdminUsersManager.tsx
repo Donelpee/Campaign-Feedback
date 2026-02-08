@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { useAuth } from '@/hooks/useAuth';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,7 +11,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import { UserPlus, Trash2, Shield, ShieldCheck, Loader2 } from 'lucide-react';
+import { UserPlus, Trash2, Shield, ShieldCheck, Loader2, Pencil } from 'lucide-react';
+import { EditUserDialog } from './EditUserDialog';
 import type { AppRole } from '@/lib/supabase-types';
 
 interface UserRoleRow {
@@ -23,14 +24,17 @@ interface UserRoleRow {
     email: string;
     full_name: string | null;
   };
+  permissionCount?: number;
 }
 
 export function AdminUsersManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { isSuperAdmin } = usePermissions();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<AppRole>('admin');
+  const [editUser, setEditUser] = useState<UserRoleRow | null>(null);
 
   const { data: adminUsers, isLoading } = useQuery({
     queryKey: ['admin-users'],
@@ -42,23 +46,22 @@ export function AdminUsersManager() {
 
       if (error) throw error;
 
-      // Fetch profiles for each user
       const userIds = roles.map(r => r.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('user_id, email, full_name')
-        .in('user_id', userIds);
+      const [profilesRes, permsRes] = await Promise.all([
+        supabase.from('profiles').select('user_id, email, full_name').in('user_id', userIds),
+        supabase.from('user_permissions').select('user_id, permission').in('user_id', userIds),
+      ]);
 
       return roles.map(role => ({
         ...role,
-        profile: profiles?.find(p => p.user_id === role.user_id),
+        profile: profilesRes.data?.find(p => p.user_id === role.user_id),
+        permissionCount: permsRes.data?.filter(p => p.user_id === role.user_id).length || 0,
       })) as UserRoleRow[];
     },
   });
 
   const addUserRole = useMutation({
     mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
-      // Find user by email in profiles
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('user_id')
@@ -68,7 +71,6 @@ export function AdminUsersManager() {
       if (profileError) throw profileError;
       if (!profile) throw new Error('User not found. They must sign up first.');
 
-      // Check if role already exists
       const { data: existing } = await supabase
         .from('user_roles')
         .select('id')
@@ -97,17 +99,15 @@ export function AdminUsersManager() {
   });
 
   const removeUserRole = useMutation({
-    mutationFn: async (roleId: string) => {
-      const { error } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('id', roleId);
-
+    mutationFn: async ({ roleId, userId }: { roleId: string; userId: string }) => {
+      // Also remove permissions
+      await supabase.from('user_permissions').delete().eq('user_id', userId);
+      const { error } = await supabase.from('user_roles').delete().eq('id', roleId);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      toast({ title: 'Role removed' });
+      toast({ title: 'User removed' });
     },
     onError: (error: Error) => {
       toast({ title: 'Error', description: error.message, variant: 'destructive' });
@@ -119,53 +119,53 @@ export function AdminUsersManager() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-foreground">Admin Users</h1>
-          <p className="text-muted-foreground mt-1">Manage administrator access and roles</p>
+          <p className="text-muted-foreground mt-1">Manage administrator access, roles, and permissions</p>
         </div>
-        <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-          <DialogTrigger asChild>
-            <Button><UserPlus className="mr-2 h-4 w-4" /> Add Admin</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Add Admin User</DialogTitle>
-              <DialogDescription>
-                Grant admin access to an existing user by their email address.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label>Email Address</Label>
-                <Input
-                  placeholder="user@example.com"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                />
+        {isSuperAdmin && (
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <DialogTrigger asChild>
+              <Button><UserPlus className="mr-2 h-4 w-4" /> Add Admin</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Admin User</DialogTitle>
+                <DialogDescription>
+                  Grant admin access to an existing user by their email address.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Email Address</Label>
+                  <Input
+                    placeholder="user@example.com"
+                    value={newEmail}
+                    onChange={(e) => setNewEmail(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Role</Label>
+                  <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="super_admin">Super Admin</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Role</Label>
-                <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="super_admin">Super Admin</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-              <Button
-                onClick={() => addUserRole.mutate({ email: newEmail, role: newRole })}
-                disabled={!newEmail || addUserRole.isPending}
-              >
-                {addUserRole.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Add Role
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+                <Button
+                  onClick={() => addUserRole.mutate({ email: newEmail, role: newRole })}
+                  disabled={!newEmail || addUserRole.isPending}
+                >
+                  {addUserRole.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Add Role
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <Card>
@@ -185,8 +185,9 @@ export function AdminUsersManager() {
                   <TableHead>User</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Permissions</TableHead>
                   <TableHead>Added</TableHead>
-                  <TableHead className="w-[80px]">Actions</TableHead>
+                  {isSuperAdmin && <TableHead className="w-[100px]">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -202,24 +203,44 @@ export function AdminUsersManager() {
                         {ur.role === 'super_admin' ? 'Super Admin' : 'Admin'}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      {ur.role === 'super_admin' ? (
+                        <span className="text-xs text-muted-foreground">All access</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {ur.permissionCount || 0} of 7 sections
+                        </span>
+                      )}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">
                       {new Date(ur.created_at).toLocaleDateString()}
                     </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeUserRole.mutate(ur.id)}
-                        disabled={removeUserRole.isPending}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
+                    {isSuperAdmin && (
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setEditUser(ur)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeUserRole.mutate({ roleId: ur.id, userId: ur.user_id })}
+                            disabled={removeUserRole.isPending}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
                 {adminUsers?.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={isSuperAdmin ? 6 : 5} className="text-center text-muted-foreground py-8">
                       No admin users found
                     </TableCell>
                   </TableRow>
@@ -229,6 +250,17 @@ export function AdminUsersManager() {
           )}
         </CardContent>
       </Card>
+
+      {editUser && (
+        <EditUserDialog
+          open={!!editUser}
+          onOpenChange={(open) => { if (!open) setEditUser(null); }}
+          userId={editUser.user_id}
+          currentRole={editUser.role}
+          roleId={editUser.id}
+          userName={editUser.profile?.full_name || editUser.profile?.email || 'Unknown'}
+        />
+      )}
     </div>
   );
 }
