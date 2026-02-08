@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { DashboardOverview } from '@/components/admin/DashboardOverview';
+import { PermissionGuard } from '@/components/admin/PermissionGuard';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Loader2 } from 'lucide-react';
 
@@ -33,7 +34,9 @@ export default function AdminDashboard() {
       <div className="min-h-screen flex w-full">
         <AdminSidebar />
         <SidebarInset>
-          <DashboardOverview />
+          <PermissionGuard permission="overview">
+            <DashboardOverview />
+          </PermissionGuard>
         </SidebarInset>
       </div>
     </SidebarProvider>

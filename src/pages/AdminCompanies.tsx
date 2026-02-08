@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { CompaniesManager } from '@/components/admin/CompaniesManager';
+import { PermissionGuard } from '@/components/admin/PermissionGuard';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Loader2 } from 'lucide-react';
 
@@ -33,7 +34,9 @@ export default function AdminCompanies() {
       <div className="min-h-screen flex w-full">
         <AdminSidebar />
         <SidebarInset>
-          <CompaniesManager />
+          <PermissionGuard permission="companies">
+            <CompaniesManager />
+          </PermissionGuard>
         </SidebarInset>
       </div>
     </SidebarProvider>

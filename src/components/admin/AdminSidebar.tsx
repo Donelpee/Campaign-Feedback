@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
+import { usePermissions, AdminPermission } from '@/hooks/usePermissions';
 import {
   Sidebar,
   SidebarContent,
@@ -23,23 +24,35 @@ import {
   Settings,
   Users,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
-const menuItems = [
-  { title: 'Overview', url: '/admin', icon: BarChart3 },
-  { title: 'Companies', url: '/admin/companies', icon: Building2 },
-  { title: 'Campaigns', url: '/admin/campaigns', icon: Calendar },
-  { title: 'Links', url: '/admin/links', icon: Link2 },
-  { title: 'Responses', url: '/admin/responses', icon: FileText },
+interface MenuItem {
+  title: string;
+  url: string;
+  icon: React.ElementType;
+  permission: AdminPermission;
+}
+
+const menuItems: MenuItem[] = [
+  { title: 'Overview', url: '/admin', icon: BarChart3, permission: 'overview' },
+  { title: 'Companies', url: '/admin/companies', icon: Building2, permission: 'companies' },
+  { title: 'Campaigns', url: '/admin/campaigns', icon: Calendar, permission: 'campaigns' },
+  { title: 'Links', url: '/admin/links', icon: Link2, permission: 'links' },
+  { title: 'Responses', url: '/admin/responses', icon: FileText, permission: 'responses' },
 ];
 
-const managementItems = [
-  { title: 'Admin Users', url: '/admin/users', icon: Users },
-  { title: 'Settings', url: '/admin/settings', icon: Settings },
+const managementItems: MenuItem[] = [
+  { title: 'Admin Users', url: '/admin/users', icon: Users, permission: 'users' },
+  { title: 'Settings', url: '/admin/settings', icon: Settings, permission: 'settings' },
 ];
 
 export function AdminSidebar() {
   const location = useLocation();
   const { user, signOut } = useAuth();
+  const { hasPermission, isSuperAdmin } = usePermissions();
+
+  const visibleMenu = menuItems.filter(item => hasPermission(item.permission));
+  const visibleManagement = managementItems.filter(item => hasPermission(item.permission));
 
   return (
     <Sidebar>
@@ -54,47 +67,51 @@ export function AdminSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {menuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === item.url}
-                  >
-                    <Link to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleMenu.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Dashboard</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleMenu.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.pathname === item.url}
+                    >
+                      <Link to={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Management</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {managementItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location.pathname === item.url}
-                  >
-                    <Link to={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {visibleManagement.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Management</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {visibleManagement.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location.pathname === item.url}
+                    >
+                      <Link to={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="border-t border-sidebar-border">
@@ -109,7 +126,9 @@ export function AdminSidebar() {
               <p className="text-sm font-medium text-sidebar-foreground truncate">
                 {user?.email}
               </p>
-              <p className="text-xs text-sidebar-foreground/60">Administrator</p>
+              <Badge variant={isSuperAdmin ? 'default' : 'secondary'} className="text-[10px] mt-0.5">
+                {isSuperAdmin ? 'Super Admin' : 'Admin'}
+              </Badge>
             </div>
           </div>
           <Button

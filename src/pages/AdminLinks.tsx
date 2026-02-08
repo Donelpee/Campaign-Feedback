@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/hooks/useAuth';
 import { AdminSidebar } from '@/components/admin/AdminSidebar';
 import { LinksManager } from '@/components/admin/LinksManager';
+import { PermissionGuard } from '@/components/admin/PermissionGuard';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { Loader2 } from 'lucide-react';
 
@@ -33,7 +34,9 @@ export default function AdminLinks() {
       <div className="min-h-screen flex w-full">
         <AdminSidebar />
         <SidebarInset>
-          <LinksManager />
+          <PermissionGuard permission="links">
+            <LinksManager />
+          </PermissionGuard>
         </SidebarInset>
       </div>
     </SidebarProvider>
