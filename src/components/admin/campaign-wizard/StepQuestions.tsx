@@ -115,6 +115,10 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
     questions[0]?.id ?? null,
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedModeEnabled =
+    buildMode === "manual" ||
+    (buildMode === "ai" && futureReleaseFlags.aiAssistedBuilder) ||
+    (buildMode === "upload" && futureReleaseFlags.uploadDocumentBuilder);
 
   useEffect(() => {
     if (questions.length === 0) {
@@ -919,7 +923,7 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
 
   return (
     <div className="space-y-4">
-      <Card>
+      <Card className="border-primary/20 bg-gradient-to-r from-sky-50 via-blue-50 to-amber-50">
         <CardContent className="pt-6 space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             {buildFlowSteps.map((step, index) => (
@@ -969,43 +973,49 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
       </Card>
 
       {!buildMode ? (
-        <Card>
+        <Card className="border-primary/20">
           <CardHeader>
             <CardTitle>How do you want to build this campaign form?</CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
+          <CardContent className="grid gap-3 md:grid-cols-3 items-stretch">
             <Button
               variant="outline"
-              className="h-auto py-4 flex flex-col items-start gap-2 text-left"
+              className="h-full min-h-[170px] w-full py-4 px-4 flex flex-col items-start justify-start gap-2 text-left whitespace-normal break-words leading-snug rounded-xl border-sky-300 bg-gradient-to-br from-sky-50 to-blue-50 hover:from-sky-100 hover:to-blue-100"
               onClick={() => setBuildMode("ai")}
             >
-              <Sparkles className="h-4 w-4" />
-              <span className="font-medium">Use AI Builder</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-blue-100 text-blue-700">
+                <Sparkles className="h-4 w-4" />
+              </span>
+              <span className="font-semibold text-sm">Use AI Builder</span>
+              <span className="text-xs text-muted-foreground whitespace-normal break-words">
                 Describe the campaign and generate questions with AI.
               </span>
             </Button>
 
             <Button
               variant="outline"
-              className="h-auto py-4 flex flex-col items-start gap-2 text-left"
+              className="h-full min-h-[170px] w-full py-4 px-4 flex flex-col items-start justify-start gap-2 text-left whitespace-normal break-words leading-snug rounded-xl border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 hover:from-amber-100 hover:to-orange-100"
               onClick={() => setBuildMode("upload")}
             >
-              <FileUp className="h-4 w-4" />
-              <span className="font-medium">Upload Document</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-amber-100 text-amber-700">
+                <FileUp className="h-4 w-4" />
+              </span>
+              <span className="font-semibold text-sm">Upload Document</span>
+              <span className="text-xs text-muted-foreground whitespace-normal break-words">
                 Upload your campaign document and generate questions from it.
               </span>
             </Button>
 
             <Button
               variant="outline"
-              className="h-auto py-4 flex flex-col items-start gap-2 text-left"
+              className="h-full min-h-[170px] w-full py-4 px-4 flex flex-col items-start justify-start gap-2 text-left whitespace-normal break-words leading-snug rounded-xl border-emerald-300 bg-gradient-to-br from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100"
               onClick={() => setBuildMode("manual")}
             >
-              <PencilLine className="h-4 w-4" />
-              <span className="font-medium">Create Manually</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-emerald-100 text-emerald-700">
+                <PencilLine className="h-4 w-4" />
+              </span>
+              <span className="font-semibold text-sm">Create Manually</span>
+              <span className="text-xs text-muted-foreground whitespace-normal break-words">
                 Build your form from scratch and add each question yourself.
               </span>
             </Button>
@@ -1013,7 +1023,7 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
         </Card>
       ) : (
         <>
-          <Card>
+          <Card className="border-blue-200 bg-blue-50/60">
             <CardContent className="pt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="text-sm font-medium">
@@ -1035,9 +1045,9 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
           </Card>
 
           {buildMode === "ai" && !futureReleaseFlags.aiAssistedBuilder && (
-            <Card>
+            <Card className="border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50">
               <CardContent className="pt-6 space-y-2">
-                <p className="text-sm font-medium">AI Builder - Coming Soon</p>
+                <p className="text-sm font-semibold text-amber-700">AI Builder - Coming Soon</p>
                 <p className="text-sm text-muted-foreground">
                   AI-assisted campaign generation is scheduled for a future release.
                 </p>
@@ -1053,9 +1063,9 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
           )}
 
           {buildMode === "upload" && !futureReleaseFlags.uploadDocumentBuilder && (
-            <Card>
+            <Card className="border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50">
               <CardContent className="pt-6 space-y-2">
-                <p className="text-sm font-medium">Document Upload - Coming Soon</p>
+                <p className="text-sm font-semibold text-amber-700">Document Upload - Coming Soon</p>
                 <p className="text-sm text-muted-foreground">
                   Document-based campaign generation is scheduled for a future release.
                 </p>
@@ -1149,7 +1159,7 @@ export function StepQuestions({ data, onChange }: StepQuestionsProps) {
             </Card>
           )}
 
-          {renderQuestionBuilder()}
+          {selectedModeEnabled && renderQuestionBuilder()}
         </>
       )}
     </div>
