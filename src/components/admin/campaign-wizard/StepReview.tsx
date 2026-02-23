@@ -20,7 +20,7 @@ interface StepReviewProps {
 const questionTypeLabels: Record<string, string> = {
   rating: "Star Rating",
   scale: "Scale",
-  multiple_choice: "Multiple Choice",
+  multiple_choice: "Checkbox (Multiple Choice)",
   single_choice: "Radio Button",
   label: "Label",
   textbox: "Textbox",

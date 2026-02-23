@@ -19,9 +19,14 @@ interface QuestionPreviewProps {
 }
 
 export function QuestionPreview({ question, className }: QuestionPreviewProps) {
+  const sanitizeOptions = (values?: string[]) =>
+    (values || [])
+      .map((value) => value.trim())
+      .filter((value, index, arr) => value.length > 0 && arr.indexOf(value) === index);
+
   if (question.type === "multiple_choice") {
-    const options = question.options?.length
-      ? question.options
+    const options = sanitizeOptions(question.options).length
+      ? sanitizeOptions(question.options)
       : ["Option 1", "Option 2"];
     return (
       <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
@@ -39,8 +44,8 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
   }
 
   if (question.type === "single_choice") {
-    const options = question.options?.length
-      ? question.options
+    const options = sanitizeOptions(question.options).length
+      ? sanitizeOptions(question.options)
       : ["Option 1", "Option 2"];
     return (
       <RadioGroup
@@ -103,8 +108,8 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
   }
 
   if (question.type === "combobox") {
-    const options = question.options?.length
-      ? question.options
+    const options = sanitizeOptions(question.options).length
+      ? sanitizeOptions(question.options)
       : ["Option 1", "Option 2"];
     return (
       <Select disabled>
@@ -112,8 +117,8 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
           <SelectValue placeholder="Select one option" />
         </SelectTrigger>
         <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
+          {options.map((option, index) => (
+            <SelectItem key={`${option}-${index}`} value={option}>
               {option}
             </SelectItem>
           ))}

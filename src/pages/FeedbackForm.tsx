@@ -52,6 +52,12 @@ interface LinkData {
   end_date: string;
 }
 
+function sanitizeOptions(values?: string[]): string[] {
+  return (values || [])
+    .map((value) => value.trim())
+    .filter((value, index, arr) => value.length > 0 && arr.indexOf(value) === index);
+}
+
 export default function FeedbackForm() {
   // Routing and state
   const { code } = useParams<{ code: string }>();
@@ -523,7 +529,7 @@ export default function FeedbackForm() {
     }
 
     if (question.type === "multiple_choice") {
-      const options = question.options || [];
+      const options = sanitizeOptions(question.options);
       const selected =
         (dynamicAnswers[question.id] as string[] | undefined) ?? [];
 
@@ -554,7 +560,7 @@ export default function FeedbackForm() {
     }
 
     if (question.type === "combobox") {
-      const options = question.options || [];
+      const options = sanitizeOptions(question.options);
       const selected = String(dynamicAnswers[question.id] ?? "");
       return (
         <div className="space-y-4">
@@ -572,8 +578,8 @@ export default function FeedbackForm() {
               <SelectValue placeholder="Select an option" />
             </SelectTrigger>
             <SelectContent>
-              {options.map((option) => (
-                <SelectItem key={option} value={option}>
+              {options.map((option, index) => (
+                <SelectItem key={`${option}-${index}`} value={option}>
                   {option}
                 </SelectItem>
               ))}
@@ -584,7 +590,7 @@ export default function FeedbackForm() {
     }
 
     if (question.type === "single_choice") {
-      const options = question.options || [];
+      const options = sanitizeOptions(question.options);
       const selected = String(dynamicAnswers[question.id] ?? "");
 
       return (

@@ -47,8 +47,8 @@ interface StepQuestionsProps {
 const questionTypeLabels: Record<CampaignQuestion["type"], string> = {
   rating: "Star Rating (1-5)",
   scale: "Scale (1-10)",
-  multiple_choice: "Multiple Choice",
-  single_choice: "Radio Button (Single Choice)",
+  multiple_choice: "Checkbox (Multiple Choice)",
+  single_choice: "Radio Button",
   label: "Label",
   textbox: "Textbox",
   textarea: "Textarea",
