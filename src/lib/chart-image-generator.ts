@@ -4,8 +4,16 @@
  */
 
 const CHART_COLORS = [
-  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-  '#EC4899', '#14B8A6', '#F97316', '#6366F1', '#84CC16',
+  "#3B82F6",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#14B8A6",
+  "#F97316",
+  "#6366F1",
+  "#84CC16",
 ];
 
 interface ChartDataItem {
@@ -13,32 +21,40 @@ interface ChartDataItem {
   value: number;
 }
 
-function createCanvas(width: number, height: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
-  const canvas = document.createElement('canvas');
+function createCanvas(
+  width: number,
+  height: number,
+): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   // White background
-  ctx.fillStyle = '#FFFFFF';
+  ctx.fillStyle = "#FFFFFF";
   ctx.fillRect(0, 0, width, height);
   return { canvas, ctx };
 }
 
-export function generatePieChart(data: ChartDataItem[], title: string, width = 600, height = 400): string {
+export function generatePieChart(
+  data: ChartDataItem[],
+  title: string,
+  width = 600,
+  height = 400,
+): string {
   const { canvas, ctx } = createCanvas(width, height);
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) {
-    ctx.fillStyle = '#6B7280';
-    ctx.font = '16px Arial';
-    ctx.textAlign = 'center';
-    ctx.fillText('No data available', width / 2, height / 2);
-    return canvas.toDataURL('image/png').split(',')[1];
+    ctx.fillStyle = "#6B7280";
+    ctx.font = "16px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("No data available", width / 2, height / 2);
+    return canvas.toDataURL("image/png").split(",")[1];
   }
 
   // Title
-  ctx.fillStyle = '#1E3A5F';
-  ctx.font = 'bold 18px Arial';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = "#1E3A5F";
+  ctx.font = "bold 18px Arial";
+  ctx.textAlign = "center";
   ctx.fillText(title, width / 2, 30);
 
   const centerX = width * 0.35;
@@ -54,7 +70,7 @@ export function generatePieChart(data: ChartDataItem[], title: string, width = 6
     ctx.closePath();
     ctx.fillStyle = CHART_COLORS[i % CHART_COLORS.length];
     ctx.fill();
-    ctx.strokeStyle = '#FFFFFF';
+    ctx.strokeStyle = "#FFFFFF";
     ctx.lineWidth = 2;
     ctx.stroke();
 
@@ -64,10 +80,10 @@ export function generatePieChart(data: ChartDataItem[], title: string, width = 6
       const labelR = radius * 0.65;
       const lx = centerX + Math.cos(midAngle) * labelR;
       const ly = centerY + Math.sin(midAngle) * labelR;
-      ctx.fillStyle = '#FFFFFF';
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold 12px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       ctx.fillText(`${((item.value / total) * 100).toFixed(0)}%`, lx, ly);
     }
 
@@ -77,29 +93,35 @@ export function generatePieChart(data: ChartDataItem[], title: string, width = 6
   // Legend
   const legendX = width * 0.68;
   let legendY = 55;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
   data.forEach((item, i) => {
     ctx.fillStyle = CHART_COLORS[i % CHART_COLORS.length];
     ctx.fillRect(legendX, legendY - 6, 14, 14);
-    ctx.fillStyle = '#374151';
-    ctx.font = '13px Arial';
-    const label = item.label.length > 20 ? item.label.substring(0, 18) + '…' : item.label;
+    ctx.fillStyle = "#374151";
+    ctx.font = "13px Arial";
+    const label =
+      item.label.length > 20 ? item.label.substring(0, 18) + "…" : item.label;
     ctx.fillText(`${label} (${item.value})`, legendX + 20, legendY + 1);
     legendY += 22;
   });
 
-  return canvas.toDataURL('image/png').split(',')[1];
+  return canvas.toDataURL("image/png").split(",")[1];
 }
 
-export function generateBarChart(data: ChartDataItem[], title: string, width = 600, height = 400): string {
+export function generateBarChart(
+  data: ChartDataItem[],
+  title: string,
+  width = 600,
+  height = 400,
+): string {
   const { canvas, ctx } = createCanvas(width, height);
-  const maxValue = Math.max(...data.map(d => d.value), 1);
+  const maxValue = Math.max(...data.map((d) => d.value), 1);
 
   // Title
-  ctx.fillStyle = '#1E3A5F';
-  ctx.font = 'bold 18px Arial';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = "#1E3A5F";
+  ctx.font = "bold 18px Arial";
+  ctx.textAlign = "center";
   ctx.fillText(title, width / 2, 30);
 
   const chartLeft = 80;
@@ -111,12 +133,12 @@ export function generateBarChart(data: ChartDataItem[], title: string, width = 6
 
   // Y-axis gridlines
   const gridLines = 5;
-  ctx.strokeStyle = '#E5E7EB';
+  ctx.strokeStyle = "#E5E7EB";
   ctx.lineWidth = 1;
-  ctx.fillStyle = '#6B7280';
-  ctx.font = '12px Arial';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
+  ctx.fillStyle = "#6B7280";
+  ctx.font = "12px Arial";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
   for (let i = 0; i <= gridLines; i++) {
     const y = chartBottom - (i / gridLines) * chartHeight;
     const val = Math.round((i / gridLines) * maxValue);
@@ -144,22 +166,23 @@ export function generateBarChart(data: ChartDataItem[], title: string, width = 6
     ctx.fillRect(x, y, barWidth, barHeight);
 
     // Value on top
-    ctx.fillStyle = '#374151';
-    ctx.font = 'bold 12px Arial';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = "#374151";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
     ctx.fillText(String(item.value), x + barWidth / 2, y - 4);
 
     // X-axis label
-    ctx.fillStyle = '#374151';
-    ctx.font = '11px Arial';
-    ctx.textBaseline = 'top';
-    const label = item.label.length > 12 ? item.label.substring(0, 10) + '…' : item.label;
+    ctx.fillStyle = "#374151";
+    ctx.font = "11px Arial";
+    ctx.textBaseline = "top";
+    const label =
+      item.label.length > 12 ? item.label.substring(0, 10) + "…" : item.label;
     ctx.fillText(label, x + barWidth / 2, chartBottom + 8);
   });
 
   // Axis lines
-  ctx.strokeStyle = '#9CA3AF';
+  ctx.strokeStyle = "#9CA3AF";
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(chartLeft, chartTop);
@@ -167,5 +190,5 @@ export function generateBarChart(data: ChartDataItem[], title: string, width = 6
   ctx.lineTo(chartRight, chartBottom);
   ctx.stroke();
 
-  return canvas.toDataURL('image/png').split(',')[1];
+  return canvas.toDataURL("image/png").split(",")[1];
 }

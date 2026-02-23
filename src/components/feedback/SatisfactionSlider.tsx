@@ -1,5 +1,5 @@
-import { Slider } from '@/components/ui/slider';
-import { cn } from '@/lib/utils';
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 
 interface SatisfactionSliderProps {
   value: number;
@@ -20,9 +20,9 @@ export function SatisfactionSlider({
 }: SatisfactionSliderProps) {
   const getColorClass = (val: number) => {
     const percentage = (val - min) / (max - min);
-    if (percentage <= 0.3) return 'text-destructive';
-    if (percentage <= 0.6) return 'text-warning';
-    return 'text-success';
+    if (percentage <= 0.3) return "text-destructive";
+    if (percentage <= 0.6) return "text-warning";
+    return "text-success";
   };
 
   return (
@@ -34,7 +34,7 @@ export function SatisfactionSlider({
             <p className="text-sm text-muted-foreground">{description}</p>
           )}
         </div>
-        <span className={cn('text-3xl font-bold', getColorClass(value))}>
+        <span className={cn("text-3xl font-bold", getColorClass(value))}>
           {value}
         </span>
       </div>

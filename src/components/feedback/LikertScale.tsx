@@ -1,4 +1,4 @@
-import { cn } from '@/lib/utils';
+import { cn } from "@/lib/utils";
 
 interface LikertScaleProps {
   value: number;
@@ -8,11 +8,11 @@ interface LikertScaleProps {
 }
 
 const options = [
-  { value: 1, label: 'Very Unlikely' },
-  { value: 2, label: 'Unlikely' },
-  { value: 3, label: 'Neutral' },
-  { value: 4, label: 'Likely' },
-  { value: 5, label: 'Very Likely' },
+  { value: 1, label: "Very Unlikely" },
+  { value: 2, label: "Unlikely" },
+  { value: 3, label: "Neutral" },
+  { value: 4, label: "Likely" },
+  { value: 5, label: "Very Likely" },
 ];
 
 export function LikertScale({
@@ -36,18 +36,18 @@ export function LikertScale({
             type="button"
             onClick={() => onChange(option.value)}
             className={cn(
-              'flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              "flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
               value === option.value
-                ? 'border-primary bg-primary/10 text-primary'
-                : 'border-border hover:border-muted-foreground/50 hover:bg-muted'
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border hover:border-muted-foreground/50 hover:bg-muted",
             )}
           >
             <span
               className={cn(
-                'w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold',
+                "w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold",
                 value === option.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground'
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground",
               )}
             >
               {option.value}

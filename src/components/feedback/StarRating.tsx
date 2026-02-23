@@ -1,5 +1,5 @@
-import { Star } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { Star } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface StarRatingProps {
   value: number;
@@ -31,17 +31,17 @@ export function StarRating({
             type="button"
             onClick={() => onChange(star)}
             className={cn(
-              'p-1 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded',
+              "p-1 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded",
               star <= value
-                ? 'text-warning'
-                : 'text-muted-foreground/30 hover:text-muted-foreground/50'
+                ? "text-warning"
+                : "text-muted-foreground/30 hover:text-muted-foreground/50",
             )}
             aria-label={`Rate ${star} out of ${max} stars`}
           >
             <Star
               className={cn(
-                'h-8 w-8 transition-all',
-                star <= value ? 'fill-current' : ''
+                "h-8 w-8 transition-all",
+                star <= value ? "fill-current" : "",
               )}
             />
           </button>

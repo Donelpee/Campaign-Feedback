@@ -1,8 +1,15 @@
 // Type definitions for our Supabase tables
 // These extend the auto-generated types for better type safety
 
-export type AppRole = 'admin' | 'super_admin';
-export type AdminPermission = 'overview' | 'companies' | 'campaigns' | 'links' | 'responses' | 'users' | 'settings';
+export type AppRole = "admin" | "super_admin";
+export type AdminPermission =
+  | "overview"
+  | "companies"
+  | "campaigns"
+  | "links"
+  | "responses"
+  | "users"
+  | "settings";
 
 export interface Company {
   id: string;
@@ -13,16 +20,40 @@ export interface Company {
   updated_at: string;
 }
 
-export type CampaignType = 'feedback' | 'employee_survey' | 'product_research' | 'event_evaluation';
+export type CampaignType =
+  | "feedback"
+  | "employee_survey"
+  | "product_research"
+  | "event_evaluation";
 
 export interface CampaignQuestion {
   id: string;
-  type: 'rating' | 'scale' | 'multiple_choice' | 'text' | 'nps';
+  type:
+    | "rating"
+    | "scale"
+    | "multiple_choice"
+    | "single_choice"
+    | "label"
+    | "textbox"
+    | "textarea"
+    | "combobox"
+    | "checkbox_matrix"
+    | "radio_matrix"
+    | "date"
+    | "file_upload"
+    | "rank"
+    | "text"
+    | "nps";
   question: string;
   required: boolean;
   options?: string[];
+  rows?: string[];
+  columns?: string[];
   min?: number;
   max?: number;
+  showIfQuestionId?: string;
+  showIfOperator?: "equals" | "not_equals" | "contains";
+  showIfValue?: string;
 }
 
 export interface Campaign {
@@ -58,9 +89,21 @@ export interface FeedbackResponse {
   recommendation_likelihood: number;
   improvement_areas: string[];
   additional_comments: string | null;
+  answers?: Record<string, unknown>;
   created_at: string;
   // Joined data
   link?: CompanyCampaignLink;
+}
+
+export interface UserSettings {
+  id: string;
+  user_id: string;
+  email_notifications: boolean;
+  weekly_summary: boolean;
+  compact_view: boolean;
+  show_response_timestamps: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface UserRole {

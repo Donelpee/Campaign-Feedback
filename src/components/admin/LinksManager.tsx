@@ -1,12 +1,20 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
-import { Switch } from '@/components/ui/switch';
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -15,14 +23,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -30,23 +38,60 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
-import { Plus, Copy, Trash2, Loader2, Link2, ExternalLink } from 'lucide-react';
-import type { Company, Campaign, CompanyCampaignLink } from '@/lib/supabase-types';
+} from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
+import {
+  Plus,
+  Copy,
+  Trash2,
+  Loader2,
+  Link2,
+  ExternalLink,
+  Mail,
+  Send,
+  RefreshCw,
+} from "lucide-react";
+import type {
+  Company,
+  Campaign,
+  CompanyCampaignLink,
+} from "@/lib/supabase-types";
+import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 
 interface LinkWithDetails extends CompanyCampaignLink {
   company: Company;
   campaign: Campaign;
 }
 
+interface CampaignRecipient {
+  id: string;
+  email: string;
+  status: "pending" | "sent" | "failed" | "opened" | "responded";
+  reminder_count: number;
+  last_sent_at: string | null;
+}
+
+interface DistributionSettings {
+  reminderEnabled: boolean;
+  reminderIntervalDays: number;
+  maxReminders: number;
+}
+
 function generateUniqueCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  let code = '';
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let code = "";
   for (let i = 0; i < 8; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return code;
+}
+
+function isCampaignActiveNow(startDate: string, endDate: string): boolean {
+  const now = new Date();
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
+  return now >= start && now <= end;
 }
 
 export function LinksManager() {
@@ -56,27 +101,56 @@ export function LinksManager() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [selectedCompany, setSelectedCompany] = useState('');
-  const [selectedCampaign, setSelectedCampaign] = useState('');
+  const [selectedCompany, setSelectedCompany] = useState("");
+  const [selectedCampaign, setSelectedCampaign] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isDistributionDialogOpen, setIsDistributionDialogOpen] =
+    useState(false);
+  const [selectedDistributionLink, setSelectedDistributionLink] =
+    useState<LinkWithDetails | null>(null);
+  const [recipientInput, setRecipientInput] = useState("");
+  const [recipients, setRecipients] = useState<CampaignRecipient[]>([]);
+  const [distributionSettings, setDistributionSettings] =
+    useState<DistributionSettings>({
+      reminderEnabled: false,
+      reminderIntervalDays: 3,
+      maxReminders: 2,
+    });
+  const [isSavingDistribution, setIsSavingDistribution] = useState(false);
+  const [isDispatchingInvites, setIsDispatchingInvites] = useState(false);
+  const [isDispatchingReminders, setIsDispatchingReminders] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const sb = supabase as unknown as {
+    from: (table: string) => {
+      select: (query: string) => {
+        eq: (column: string, value: string) => {
+          order: (column: string, options?: { ascending?: boolean }) => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+          maybeSingle: () => Promise<{ data: unknown | null; error: { message: string } | null }>;
+        };
+      };
+      insert: (values: unknown) => Promise<{ error: { message: string } | null }>;
+      upsert: (values: unknown, options?: unknown) => Promise<{ error: { message: string } | null }>;
+    };
+  };
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [linksRes, companiesRes, campaignsRes] = await Promise.all([
         supabase
-          .from('company_campaign_links')
-          .select(`
+          .from("company_campaign_links")
+          .select(
+            `
             *,
             company:company_id (*),
             campaign:campaign_id (*)
-          `)
-          .order('created_at', { ascending: false }),
-        supabase.from('companies').select('*').order('name'),
-        supabase.from('campaigns').select('*').order('start_date', { ascending: false }),
+          `,
+          )
+          .order("created_at", { ascending: false }),
+        supabase.from("companies").select("*").order("name"),
+        supabase
+          .from("campaigns")
+          .select("*")
+          .order("start_date", { ascending: false }),
       ]);
 
       if (linksRes.error) throw linksRes.error;
@@ -88,45 +162,73 @@ export function LinksManager() {
           ...link,
           company: link.company as unknown as Company,
           campaign: link.campaign as unknown as Campaign,
-        }))
+        })),
       );
       setCompanies((companiesRes.data || []) as Company[]);
-      setCampaigns((campaignsRes.data || []).map(c => ({
-        ...c,
-        campaign_type: c.campaign_type as Campaign['campaign_type'],
-        questions: (c.questions || []) as unknown as Campaign['questions'],
-      })));
+      setCampaigns(
+        (campaignsRes.data || []).map((c) => ({
+          ...c,
+          campaign_type: c.campaign_type as Campaign["campaign_type"],
+          questions: (c.questions || []) as unknown as Campaign["questions"],
+        })),
+      );
     } catch (error) {
-      console.error('Error loading data:', error);
+      console.error("Error loading data:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to load data.',
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load data.",
       });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleCreate = async () => {
     if (!selectedCompany || !selectedCampaign) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Please select both a company and a campaign.',
+        variant: "destructive",
+        title: "Error",
+        description: "Please select both a company and a campaign.",
       });
       return;
     }
 
-    // Check if link already exists
-    const existing = links.find(
-      (l) => l.company_id === selectedCompany && l.campaign_id === selectedCampaign
-    );
+    // Check if campaign already has a link
+    const existing = links.find((l) => l.campaign_id === selectedCampaign);
     if (existing) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'A link for this company and campaign already exists.',
+        variant: "destructive",
+        title: "Error",
+        description: "This campaign already has a generated link.",
+      });
+      return;
+    }
+
+    const selectedCampaignRecord = campaigns.find((c) => c.id === selectedCampaign);
+    if (!selectedCampaignRecord) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Selected campaign was not found.",
+      });
+      return;
+    }
+
+    if (
+      !isCampaignActiveNow(
+        selectedCampaignRecord.start_date,
+        selectedCampaignRecord.end_date,
+      )
+    ) {
+      toast({
+        variant: "destructive",
+        title: "Campaign is inactive",
+        description: "Links can only be generated for active campaigns.",
       });
       return;
     }
@@ -134,62 +236,244 @@ export function LinksManager() {
     setIsSaving(true);
 
     try {
-      const uniqueCode = generateUniqueCode();
+      let created = false;
+      for (let attempt = 0; attempt < 5 && !created; attempt++) {
+        const uniqueCode = generateUniqueCode();
+        const { error } = await supabase.from("company_campaign_links").insert({
+          company_id: selectedCompany,
+          campaign_id: selectedCampaign,
+          unique_code: uniqueCode,
+        });
 
-      const { error } = await supabase.from('company_campaign_links').insert({
-        company_id: selectedCompany,
-        campaign_id: selectedCampaign,
-        unique_code: uniqueCode,
-      });
+        if (!error) {
+          created = true;
+          break;
+        }
 
-      if (error) throw error;
+        if (error.code !== "23505") {
+          throw error;
+        }
+      }
+
+      if (!created) {
+        throw new Error("Unable to create a unique link code.");
+      }
 
       toast({
-        title: 'Success',
-        description: 'Feedback link created successfully.',
+        title: "Success",
+        description: "Feedback link created successfully.",
       });
 
       setIsDialogOpen(false);
-      setSelectedCompany('');
-      setSelectedCampaign('');
+      setSelectedCompany("");
+      setSelectedCampaign("");
       loadData();
     } catch (error) {
-      console.error('Error creating link:', error);
+      console.error("Error creating link:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to create link.";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to create link.',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     } finally {
       setIsSaving(false);
     }
   };
 
+  const loadDistributionData = useCallback(
+    async (link: LinkWithDetails) => {
+      try {
+        const [recipientsRes, settingsRes] = await Promise.all([
+          sb
+            .from("campaign_email_recipients")
+            .select("id, email, status, reminder_count, last_sent_at")
+            .eq("campaign_id", link.campaign_id)
+            .order("created_at", { ascending: false }),
+          sb
+            .from("campaign_distribution_settings")
+            .select(
+              "campaign_id, reminder_enabled, reminder_interval_days, max_reminders",
+            )
+            .eq("campaign_id", link.campaign_id)
+            .maybeSingle(),
+        ]);
+
+        if (recipientsRes.error) throw recipientsRes.error;
+        if (settingsRes.error) throw settingsRes.error;
+
+        const loadedRecipients = (recipientsRes.data || []) as CampaignRecipient[];
+        setRecipients(loadedRecipients);
+
+        const settingRow = settingsRes.data as
+          | {
+              reminder_enabled?: boolean;
+              reminder_interval_days?: number;
+              max_reminders?: number;
+            }
+          | null;
+
+        setDistributionSettings({
+          reminderEnabled: Boolean(settingRow?.reminder_enabled),
+          reminderIntervalDays: settingRow?.reminder_interval_days || 3,
+          maxReminders: settingRow?.max_reminders || 2,
+        });
+      } catch (error) {
+        console.error("Error loading distribution data:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to load distribution settings.",
+        });
+      }
+    },
+    [sb, toast],
+  );
+
+  const openDistributionDialog = async (link: LinkWithDetails) => {
+    setSelectedDistributionLink(link);
+    setIsDistributionDialogOpen(true);
+    setRecipientInput("");
+    await loadDistributionData(link);
+  };
+
+  const parseRecipientEmails = (raw: string) =>
+    raw
+      .split(/[\n,;]/)
+      .map((entry) => entry.trim().toLowerCase())
+      .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry));
+
+  const handleSaveDistribution = async () => {
+    if (!selectedDistributionLink) return;
+
+    const parsedEmails = parseRecipientEmails(recipientInput);
+    setIsSavingDistribution(true);
+
+    try {
+      const settingsPayload = {
+        campaign_id: selectedDistributionLink.campaign_id,
+        reminder_enabled: distributionSettings.reminderEnabled,
+        reminder_interval_days: Math.max(
+          1,
+          distributionSettings.reminderIntervalDays,
+        ),
+        max_reminders: Math.max(0, distributionSettings.maxReminders),
+      };
+
+      const { error: settingsError } = await sb
+        .from("campaign_distribution_settings")
+        .upsert(settingsPayload, { onConflict: "campaign_id" });
+      if (settingsError) throw settingsError;
+
+      if (parsedEmails.length > 0) {
+        const payload = parsedEmails.map((email) => ({
+          campaign_id: selectedDistributionLink.campaign_id,
+          company_id: selectedDistributionLink.company_id,
+          email,
+          status: "pending",
+        }));
+        const { error: recipientsError } = await sb
+          .from("campaign_email_recipients")
+          .upsert(payload, { onConflict: "campaign_id,email", ignoreDuplicates: true });
+        if (recipientsError) throw recipientsError;
+      }
+
+      setRecipientInput("");
+      await loadDistributionData(selectedDistributionLink);
+      toast({
+        title: "Saved",
+        description: "Distribution settings updated successfully.",
+      });
+    } catch (error) {
+      console.error("Error saving distribution:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save distribution settings.",
+      });
+    } finally {
+      setIsSavingDistribution(false);
+    }
+  };
+
+  const handleDispatch = async (action: "send_invites" | "send_reminders") => {
+    if (!selectedDistributionLink) return;
+
+    if (action === "send_invites") {
+      setIsDispatchingInvites(true);
+    } else {
+      setIsDispatchingReminders(true);
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "dispatch-campaign-emails",
+        {
+          body: {
+            campaignId: selectedDistributionLink.campaign_id,
+            action,
+          },
+        },
+      );
+
+      if (error) throw error;
+
+      const summary = data as
+        | { sent?: number; failed?: number; processed?: number; message?: string }
+        | undefined;
+
+      await loadDistributionData(selectedDistributionLink);
+      toast({
+        title: action === "send_invites" ? "Invites processed" : "Reminders processed",
+        description:
+          summary?.message ||
+          `Processed ${summary?.processed || 0}, sent ${summary?.sent || 0}, failed ${summary?.failed || 0}.`,
+      });
+    } catch (error) {
+      console.error("Error dispatching emails:", error);
+      toast({
+        variant: "destructive",
+        title: "Dispatch failed",
+        description:
+          action === "send_invites"
+            ? "Unable to dispatch invites."
+            : "Unable to dispatch reminders.",
+      });
+    } finally {
+      if (action === "send_invites") {
+        setIsDispatchingInvites(false);
+      } else {
+        setIsDispatchingReminders(false);
+      }
+    }
+  };
+
   const handleToggleActive = async (link: LinkWithDetails) => {
     try {
       const { error } = await supabase
-        .from('company_campaign_links')
+        .from("company_campaign_links")
         .update({ is_active: !link.is_active })
-        .eq('id', link.id);
+        .eq("id", link.id);
 
       if (error) throw error;
 
       setLinks(
         links.map((l) =>
-          l.id === link.id ? { ...l, is_active: !l.is_active } : l
-        )
+          l.id === link.id ? { ...l, is_active: !l.is_active } : l,
+        ),
       );
 
       toast({
-        title: 'Success',
-        description: `Link ${!link.is_active ? 'activated' : 'deactivated'} successfully.`,
+        title: "Success",
+        description: `Link ${!link.is_active ? "activated" : "deactivated"} successfully.`,
       });
     } catch (error) {
-      console.error('Error toggling link:', error);
+      console.error("Error toggling link:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to update link status.',
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update link status.",
       });
     }
   };
@@ -198,15 +482,15 @@ export function LinksManager() {
     const url = `${window.location.origin}/feedback/${code}`;
     navigator.clipboard.writeText(url);
     toast({
-      title: 'Copied!',
-      description: 'Feedback link copied to clipboard.',
+      title: "Copied!",
+      description: "Feedback link copied to clipboard.",
     });
   };
 
   const handleDelete = async (link: LinkWithDetails) => {
     if (
       !confirm(
-        `Are you sure you want to delete this link? This will also delete all associated responses.`
+        `Are you sure you want to delete this link? This will also delete all associated responses.`,
       )
     ) {
       return;
@@ -214,58 +498,59 @@ export function LinksManager() {
 
     try {
       const { error } = await supabase
-        .from('company_campaign_links')
+        .from("company_campaign_links")
         .delete()
-        .eq('id', link.id);
+        .eq("id", link.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Link deleted successfully.',
+        title: "Success",
+        description: "Link deleted successfully.",
       });
 
       loadData();
     } catch (error) {
-      console.error('Error deleting link:', error);
+      console.error("Error deleting link:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to delete link.',
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete link.",
       });
     }
   };
 
   const getStatus = (startDate: string, endDate: string, isActive: boolean) => {
     if (!isActive) {
-      return { label: 'Inactive', variant: 'secondary' as const };
+      return { label: "Inactive", variant: "secondary" as const };
     }
 
     const now = new Date();
     const start = new Date(startDate);
     const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
 
     if (now < start) {
-      return { label: 'Upcoming', variant: 'outline' as const };
+      return { label: "Upcoming", variant: "outline" as const };
     } else if (now > end) {
-      return { label: 'Expired', variant: 'destructive' as const };
+      return { label: "Expired", variant: "destructive" as const };
     } else {
-      return { label: 'Active', variant: 'default' as const };
+      return { label: "Active", variant: "default" as const };
     }
   };
 
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+      <header className="glass-header sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
         <h1 className="font-semibold text-lg">Feedback Links</h1>
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-6">
-        <Card>
+      <main className="flex-1 overflow-auto p-6 md:p-8">
+        <Card className="mx-auto w-full max-w-[1400px]">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>URL Generation</CardTitle>
@@ -284,13 +569,17 @@ export function LinksManager() {
                 <DialogHeader>
                   <DialogTitle>Generate Feedback Link</DialogTitle>
                   <DialogDescription>
-                    Create a unique feedback URL for a specific company and campaign.
+                    Create a unique feedback URL for a specific company and
+                    campaign.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
                   <div className="space-y-2">
                     <Label>Company</Label>
-                    <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                    <Select
+                      value={selectedCompany}
+                      onValueChange={setSelectedCompany}
+                    >
                       <SelectTrigger>
                         <SelectValue placeholder="Select a company" />
                       </SelectTrigger>
@@ -305,19 +594,36 @@ export function LinksManager() {
                   </div>
                   <div className="space-y-2">
                     <Label>Campaign</Label>
-                    <Select value={selectedCampaign} onValueChange={setSelectedCampaign}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a campaign" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {campaigns.map((campaign) => (
-                          <SelectItem key={campaign.id} value={campaign.id}>
-                            {campaign.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <Select
+                        value={selectedCampaign}
+                        onValueChange={setSelectedCampaign}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a campaign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {campaigns
+                            .filter((campaign) =>
+                              isCampaignActiveNow(
+                                campaign.start_date,
+                                campaign.end_date,
+                              ),
+                            )
+                            .filter(
+                              (campaign) =>
+                                !links.some((link) => link.campaign_id === campaign.id),
+                            )
+                            .map((campaign) => (
+                              <SelectItem key={campaign.id} value={campaign.id}>
+                                {campaign.name}
+                              </SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Only active campaigns without an existing link are listed.
+                      </p>
+                    </div>
                 </div>
                 <DialogFooter>
                   <Button
@@ -334,7 +640,7 @@ export function LinksManager() {
                         Creating...
                       </>
                     ) : (
-                      'Generate Link'
+                      "Generate Link"
                     )}
                   </Button>
                 </DialogFooter>
@@ -371,7 +677,7 @@ export function LinksManager() {
                     const status = getStatus(
                       link.campaign.start_date,
                       link.campaign.end_date,
-                      link.is_active
+                      link.is_active,
                     );
                     return (
                       <TableRow key={link.id}>
@@ -391,6 +697,16 @@ export function LinksManager() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
+                            {futureReleaseFlags.phase2DistributionAndReminders && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => openDistributionDialog(link)}
+                                title="Manage recipients and reminders"
+                              >
+                                <Mail className="h-4 w-4" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -403,7 +719,10 @@ export function LinksManager() {
                               variant="ghost"
                               size="icon"
                               onClick={() =>
-                                window.open(`/feedback/${link.unique_code}`, '_blank')
+                                window.open(
+                                  `/feedback/${link.unique_code}`,
+                                  "_blank",
+                                )
                               }
                               title="Open link"
                             >
@@ -428,6 +747,181 @@ export function LinksManager() {
           </CardContent>
         </Card>
       </main>
+
+      {futureReleaseFlags.phase2DistributionAndReminders && (
+      <Dialog
+        open={isDistributionDialogOpen}
+        onOpenChange={setIsDistributionDialogOpen}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Distribution & Reminders</DialogTitle>
+            <DialogDescription>
+              {selectedDistributionLink
+                ? `${selectedDistributionLink.campaign.name} · ${selectedDistributionLink.company.name}`
+                : "Manage recipients and reminder cadence."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">Recipients</p>
+                <p className="text-2xl font-semibold">{recipients.length}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">Sent</p>
+                <p className="text-2xl font-semibold">
+                  {recipients.filter((r) => r.status === "sent").length}
+                </p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-xs text-muted-foreground">Responded</p>
+                <p className="text-2xl font-semibold">
+                  {recipients.filter((r) => r.status === "responded").length}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Add Recipients (one email per line or comma separated)</Label>
+              <Textarea
+                rows={4}
+                placeholder={"name@company.com\nanother@company.com"}
+                value={recipientInput}
+                onChange={(event) => setRecipientInput(event.target.value)}
+              />
+            </div>
+
+            <div className="rounded-md border p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Enable reminders</Label>
+                <Switch
+                  checked={distributionSettings.reminderEnabled}
+                  onCheckedChange={(checked) =>
+                    setDistributionSettings((prev) => ({
+                      ...prev,
+                      reminderEnabled: checked,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Reminder interval (days)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={distributionSettings.reminderIntervalDays}
+                    onChange={(event) =>
+                      setDistributionSettings((prev) => ({
+                        ...prev,
+                        reminderIntervalDays: Number(event.target.value || 3),
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Max reminders</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={distributionSettings.maxReminders}
+                    onChange={(event) =>
+                      setDistributionSettings((prev) => ({
+                        ...prev,
+                        maxReminders: Number(event.target.value || 2),
+                      }))
+                    }
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-md border">
+              <div className="px-3 py-2 border-b">
+                <p className="text-sm font-medium">Recipients</p>
+              </div>
+              <div className="max-h-48 overflow-auto">
+                {recipients.length === 0 ? (
+                  <p className="p-3 text-sm text-muted-foreground">
+                    No recipients yet.
+                  </p>
+                ) : (
+                  <div className="divide-y">
+                    {recipients.map((recipient) => (
+                      <div
+                        key={recipient.id}
+                        className="px-3 py-2 flex items-center justify-between gap-2 text-sm"
+                      >
+                        <span className="truncate">{recipient.email}</span>
+                        <Badge variant="outline" className="capitalize">
+                          {recipient.status}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex flex-wrap gap-2 sm:justify-between">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!selectedDistributionLink) return;
+                loadDistributionData(selectedDistributionLink);
+              }}
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Refresh
+            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handleSaveDistribution}
+                disabled={isSavingDistribution}
+              >
+                {isSavingDistribution ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="mr-2 h-4 w-4" />
+                )}
+                Save List & Settings
+              </Button>
+              <Button
+                onClick={() => handleDispatch("send_invites")}
+                disabled={isDispatchingInvites || recipients.length === 0}
+              >
+                {isDispatchingInvites ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="mr-2 h-4 w-4" />
+                )}
+                Send Invites
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => handleDispatch("send_reminders")}
+                disabled={
+                  isDispatchingReminders ||
+                  recipients.length === 0 ||
+                  !distributionSettings.reminderEnabled
+                }
+              >
+                {isDispatchingReminders ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="mr-2 h-4 w-4" />
+                )}
+                Send Reminders
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      )}
     </div>
   );
 }

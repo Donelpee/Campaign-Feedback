@@ -1,13 +1,19 @@
-import { useState, useEffect } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
-import { SidebarTrigger } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
   DialogContent,
@@ -16,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog';
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -24,11 +30,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { useToast } from '@/hooks/use-toast';
-import { Plus, Pencil, Trash2, Loader2, Building2 } from 'lucide-react';
-import { LogoUpload } from './LogoUpload';
-import type { Company } from '@/lib/supabase-types';
+} from "@/components/ui/table";
+import { useToast } from "@/hooks/use-toast";
+import { Plus, Pencil, Trash2, Loader2, Building2 } from "lucide-react";
+import { LogoUpload } from "./LogoUpload";
+import type { Company } from "@/lib/supabase-types";
 
 export function CompaniesManager() {
   const { toast } = useToast();
@@ -36,45 +42,49 @@ export function CompaniesManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingCompany, setEditingCompany] = useState<Company | null>(null);
-  const [formData, setFormData] = useState({ name: '', description: '', logo_url: '' as string | null });
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    logo_url: "" as string | null,
+  });
   const [isSaving, setIsSaving] = useState(false);
 
-  useEffect(() => {
-    loadCompanies();
-  }, []);
-
-  const loadCompanies = async () => {
+  const loadCompanies = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('companies')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from("companies")
+        .select("*")
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       setCompanies(data || []);
     } catch (error) {
-      console.error('Error loading companies:', error);
+      console.error("Error loading companies:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to load companies.',
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load companies.",
       });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    loadCompanies();
+  }, [loadCompanies]);
 
   const handleOpenDialog = (company?: Company) => {
     if (company) {
       setEditingCompany(company);
-      setFormData({ 
-        name: company.name, 
-        description: company.description || '',
+      setFormData({
+        name: company.name,
+        description: company.description || "",
         logo_url: company.logo_url || null,
       });
     } else {
       setEditingCompany(null);
-      setFormData({ name: '', description: '', logo_url: null });
+      setFormData({ name: "", description: "", logo_url: null });
     }
     setIsDialogOpen(true);
   };
@@ -82,9 +92,9 @@ export function CompaniesManager() {
   const handleSave = async () => {
     if (!formData.name.trim()) {
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Company name is required.',
+        variant: "destructive",
+        title: "Error",
+        description: "Company name is required.",
       });
       return;
     }
@@ -92,25 +102,35 @@ export function CompaniesManager() {
     setIsSaving(true);
 
     try {
+      const trimmedName = formData.name.trim();
+      const duplicate = companies.find(
+        (company) =>
+          company.name.trim() === trimmedName &&
+          (!editingCompany || company.id !== editingCompany.id),
+      );
+      if (duplicate) {
+        throw new Error("A company with this exact name already exists.");
+      }
+
       if (editingCompany) {
         const { error } = await supabase
-          .from('companies')
+          .from("companies")
           .update({
-            name: formData.name.trim(),
+            name: trimmedName,
             description: formData.description.trim() || null,
             logo_url: formData.logo_url,
           })
-          .eq('id', editingCompany.id);
+          .eq("id", editingCompany.id);
 
         if (error) throw error;
 
         toast({
-          title: 'Success',
-          description: 'Company updated successfully.',
+          title: "Success",
+          description: "Company updated successfully.",
         });
       } else {
-        const { error } = await supabase.from('companies').insert({
-          name: formData.name.trim(),
+        const { error } = await supabase.from("companies").insert({
+          name: trimmedName,
           description: formData.description.trim() || null,
           logo_url: formData.logo_url,
         });
@@ -118,19 +138,21 @@ export function CompaniesManager() {
         if (error) throw error;
 
         toast({
-          title: 'Success',
-          description: 'Company created successfully.',
+          title: "Success",
+          description: "Company created successfully.",
         });
       }
 
       setIsDialogOpen(false);
       loadCompanies();
     } catch (error) {
-      console.error('Error saving company:', error);
+      console.error("Error saving company:", error);
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to save company.";
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to save company.',
+        variant: "destructive",
+        title: "Error",
+        description: errorMessage,
       });
     } finally {
       setIsSaving(false);
@@ -138,27 +160,34 @@ export function CompaniesManager() {
   };
 
   const handleDelete = async (company: Company) => {
-    if (!confirm(`Are you sure you want to delete "${company.name}"? This will also delete all associated links and responses.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete "${company.name}"? This will also delete all associated links and responses.`,
+      )
+    ) {
       return;
     }
 
     try {
-      const { error } = await supabase.from('companies').delete().eq('id', company.id);
+      const { error } = await supabase
+        .from("companies")
+        .delete()
+        .eq("id", company.id);
 
       if (error) throw error;
 
       toast({
-        title: 'Success',
-        description: 'Company deleted successfully.',
+        title: "Success",
+        description: "Company deleted successfully.",
       });
 
       loadCompanies();
     } catch (error) {
-      console.error('Error deleting company:', error);
+      console.error("Error deleting company:", error);
       toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: 'Failed to delete company.',
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete company.",
       });
     }
   };
@@ -166,15 +195,15 @@ export function CompaniesManager() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
+      <header className="glass-header sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
         <h1 className="font-semibold text-lg">Companies</h1>
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-6">
-        <Card>
+      <main className="flex-1 overflow-auto p-6 md:p-8">
+        <Card className="mx-auto w-full max-w-[1400px]">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Client Companies</CardTitle>
@@ -192,12 +221,12 @@ export function CompaniesManager() {
               <DialogContent>
                 <DialogHeader>
                   <DialogTitle>
-                    {editingCompany ? 'Edit Company' : 'Add New Company'}
+                    {editingCompany ? "Edit Company" : "Add New Company"}
                   </DialogTitle>
                   <DialogDescription>
                     {editingCompany
-                      ? 'Update the company details below.'
-                      : 'Enter the details for the new company.'}
+                      ? "Update the company details below."
+                      : "Enter the details for the new company."}
                   </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4 py-4">
@@ -205,8 +234,10 @@ export function CompaniesManager() {
                     <Label>Company Logo</Label>
                     <LogoUpload
                       logoUrl={formData.logo_url}
-                      companyName={formData.name || 'Company'}
-                      onUpload={(url) => setFormData({ ...formData, logo_url: url })}
+                      companyName={formData.name || "Company"}
+                      onUpload={(url) =>
+                        setFormData({ ...formData, logo_url: url })
+                      }
                     />
                   </div>
                   <div className="space-y-2">
@@ -227,7 +258,10 @@ export function CompaniesManager() {
                       placeholder="Brief description of the company..."
                       value={formData.description}
                       onChange={(e) =>
-                        setFormData({ ...formData, description: e.target.value })
+                        setFormData({
+                          ...formData,
+                          description: e.target.value,
+                        })
                       }
                     />
                   </div>
@@ -247,7 +281,7 @@ export function CompaniesManager() {
                         Saving...
                       </>
                     ) : (
-                      'Save'
+                      "Save"
                     )}
                   </Button>
                 </DialogFooter>
@@ -283,7 +317,11 @@ export function CompaniesManager() {
                       <TableCell>
                         <div className="flex items-center gap-3">
                           <Avatar className="h-9 w-9 rounded-md">
-                            <AvatarImage src={company.logo_url || undefined} alt={company.name} className="object-cover" />
+                            <AvatarImage
+                              src={company.logo_url || undefined}
+                              alt={company.name}
+                              className="object-cover"
+                            />
                             <AvatarFallback className="rounded-md bg-muted">
                               <Building2 className="h-4 w-4 text-muted-foreground" />
                             </AvatarFallback>
@@ -292,7 +330,7 @@ export function CompaniesManager() {
                         </div>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
-                        {company.description || '—'}
+                        {company.description || "—"}
                       </TableCell>
                       <TableCell>
                         {new Date(company.created_at).toLocaleDateString()}

@@ -1,15 +1,32 @@
-import { useState, useEffect } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
-import { ALL_PERMISSIONS, PERMISSION_LABELS, AdminPermission } from '@/hooks/usePermissions';
-import type { AppRole } from '@/lib/supabase-types';
+import { useState, useEffect } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from "lucide-react";
+import {
+  ALL_PERMISSIONS,
+  PERMISSION_LABELS,
+  AdminPermission,
+} from "@/hooks/usePermissions";
+import type { AppRole } from "@/lib/supabase-types";
 
 interface EditUserDialogProps {
   open: boolean;
@@ -20,22 +37,31 @@ interface EditUserDialogProps {
   userName: string;
 }
 
-export function EditUserDialog({ open, onOpenChange, userId, currentRole, roleId, userName }: EditUserDialogProps) {
+export function EditUserDialog({
+  open,
+  onOpenChange,
+  userId,
+  currentRole,
+  roleId,
+  userName,
+}: EditUserDialogProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [role, setRole] = useState<AppRole>(currentRole);
-  const [selectedPermissions, setSelectedPermissions] = useState<AdminPermission[]>([]);
+  const [selectedPermissions, setSelectedPermissions] = useState<
+    AdminPermission[]
+  >([]);
 
   // Fetch current permissions for this user
   const { data: currentPermissions, isLoading: loadingPerms } = useQuery({
-    queryKey: ['user-permissions-edit', userId],
+    queryKey: ["user-permissions-edit", userId],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from('user_permissions')
-        .select('permission')
-        .eq('user_id', userId);
+        .from("user_permissions")
+        .select("permission")
+        .eq("user_id", userId);
       if (error) throw error;
-      return (data || []).map(d => d.permission as AdminPermission);
+      return (data || []).map((d) => d.permission as AdminPermission);
     },
     enabled: open,
   });
@@ -51,8 +77,8 @@ export function EditUserDialog({ open, onOpenChange, userId, currentRole, roleId
   }, [currentRole]);
 
   const togglePermission = (perm: AdminPermission) => {
-    setSelectedPermissions(prev =>
-      prev.includes(perm) ? prev.filter(p => p !== perm) : [...prev, perm]
+    setSelectedPermissions((prev) =>
+      prev.includes(perm) ? prev.filter((p) => p !== perm) : [...prev, perm],
     );
   };
 
@@ -61,44 +87,50 @@ export function EditUserDialog({ open, onOpenChange, userId, currentRole, roleId
       // Update role if changed
       if (role !== currentRole) {
         const { error } = await supabase
-          .from('user_roles')
+          .from("user_roles")
           .update({ role })
-          .eq('id', roleId);
+          .eq("id", roleId);
         if (error) throw error;
       }
 
       // Update permissions: delete all then insert new ones
       // Only relevant for admin role (super_admin gets everything)
       const { error: delError } = await supabase
-        .from('user_permissions')
+        .from("user_permissions")
         .delete()
-        .eq('user_id', userId);
+        .eq("user_id", userId);
       if (delError) throw delError;
 
-      if (role !== 'super_admin' && selectedPermissions.length > 0) {
-        const rows = selectedPermissions.map(permission => ({
+      if (role !== "super_admin" && selectedPermissions.length > 0) {
+        const rows = selectedPermissions.map((permission) => ({
           user_id: userId,
           permission,
         }));
         const { error: insError } = await supabase
-          .from('user_permissions')
+          .from("user_permissions")
           .insert(rows);
         if (insError) throw insError;
       }
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
-      queryClient.invalidateQueries({ queryKey: ['user-permissions'] });
-      queryClient.invalidateQueries({ queryKey: ['user-permissions-edit', userId] });
-      toast({ title: 'User updated successfully' });
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      queryClient.invalidateQueries({ queryKey: ["user-permissions"] });
+      queryClient.invalidateQueries({
+        queryKey: ["user-permissions-edit", userId],
+      });
+      toast({ title: "User updated successfully" });
       onOpenChange(false);
     },
     onError: (error: Error) => {
-      toast({ title: 'Error', description: error.message, variant: 'destructive' });
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
-  const isSuperAdmin = role === 'super_admin';
+  const isSuperAdmin = role === "super_admin";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -137,7 +169,9 @@ export function EditUserDialog({ open, onOpenChange, userId, currentRole, roleId
             <div className="space-y-3">
               <Label>Permissions</Label>
               {isSuperAdmin ? (
-                <p className="text-sm text-muted-foreground">All permissions granted automatically.</p>
+                <p className="text-sm text-muted-foreground">
+                  All permissions granted automatically.
+                </p>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
                   {ALL_PERMISSIONS.map((perm) => (
@@ -159,12 +193,16 @@ export function EditUserDialog({ open, onOpenChange, userId, currentRole, roleId
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
           <Button
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
           >
-            {saveMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            {saveMutation.isPending && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
             Save Changes
           </Button>
         </DialogFooter>

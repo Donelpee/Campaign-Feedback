@@ -71,3 +71,19 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## AI campaign generation setup
+
+This project includes a Supabase Edge Function at `supabase/functions/generate-campaign-draft/index.ts`.
+
+Deploy and configure it before using AI generation in the campaign wizard:
+
+```sh
+supabase functions deploy generate-campaign-draft
+supabase secrets set OPENAI_API_KEY=your_key_here
+# optional
+supabase secrets set OPENAI_MODEL=gpt-4o-mini
+supabase secrets set OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+If no AI secret is configured or provider calls fail, the app automatically falls back to local heuristic generation.
