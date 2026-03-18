@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Save, KeyRound, Bell, Palette } from "lucide-react";
@@ -151,9 +152,16 @@ export function SettingsManager() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] space-y-6 p-3 sm:p-4 md:p-8">
+    <div className="flex h-full flex-col">
+      <header className="glass-header sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mr-2 h-4" />
+        <h1 className="font-semibold text-lg">Settings</h1>
+      </header>
+      <main className="flex-1 overflow-auto">
+      <div className="mx-auto w-full max-w-[1100px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="easy-form-shell">
-        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Settings</h1>
+        <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Settings</h2>
         <p className="text-muted-foreground mt-1">
           Manage your account and preferences in one simple place.
         </p>
@@ -418,6 +426,8 @@ export function SettingsManager() {
           Save Preferences
         </Button>
       </div>
+      </div>
+      </main>
     </div>
   );
 }

@@ -4,6 +4,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Separator } from "@/components/ui/separator";
 import {
   Card,
   CardContent,
@@ -177,10 +179,18 @@ export function AdminUsersManager() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-6 p-3 sm:p-4 md:p-8">
+    <div className="flex h-full flex-col">
+      <header className="glass-header sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4">
+        <SidebarTrigger className="-ml-1" />
+        <Separator orientation="vertical" className="mr-2 h-4" />
+        <h1 className="font-semibold text-lg">Admin Users</h1>
+      </header>
+
+      <main className="flex-1 overflow-auto">
+      <div className="mx-auto w-full max-w-[1400px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Admin Users</h1>
+          <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Admin Users</h2>
           <p className="text-muted-foreground mt-1">
             Manage administrator access, roles, and permissions
           </p>
@@ -367,6 +377,8 @@ export function AdminUsersManager() {
           }
         />
       )}
+      </div>
+      </main>
     </div>
   );
 }

@@ -449,7 +449,7 @@ export function StepQuestions({
                           handleQuestionTypeChange(index, type)
                         }
                       >
-                        <SelectTrigger className={easyMode ? "w-[210px] h-9.5 text-sm" : "w-[180px] h-8"}>
+                        <SelectTrigger className={easyMode ? "h-9.5 w-full text-sm sm:w-[210px]" : "h-8 w-full sm:w-[180px]"}>
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -724,7 +724,7 @@ export function StepQuestions({
             </div>
             <div
               className={cn(
-                "grid min-w-[220px] gap-2 rounded-xl border px-4 py-3 text-right",
+                "grid w-full gap-2 rounded-xl border px-4 py-3 text-left md:min-w-[220px] md:text-right",
                 modeMeta.accentSurfaceClass,
               )}
             >

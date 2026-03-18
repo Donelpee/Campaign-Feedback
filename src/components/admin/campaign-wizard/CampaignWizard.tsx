@@ -513,17 +513,17 @@ export function CampaignWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[100vh] w-[100vw] max-w-none rounded-none border-0 p-0 overflow-hidden flex flex-col shadow-none">
+      <DialogContent className="h-[100dvh] w-full max-w-none rounded-none border-0 p-0 overflow-hidden flex flex-col shadow-none">
         <div
           className={cn(
             "cw-gradient-drift border-b",
             shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
           )}
         >
-          <DialogHeader className="px-6 pt-6 pb-5 md:px-8">
+          <DialogHeader className="px-3 pb-4 pt-4 sm:px-4 md:px-8 md:pt-6 md:pb-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="space-y-2">
-                <DialogTitle className="text-2xl font-semibold tracking-tight md:text-3xl">
+                <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl md:text-3xl">
                   {wizardData.campaignId
                     ? "Edit Campaign / Survey"
                     : "Create Campaign / Survey"}
@@ -531,7 +531,7 @@ export function CampaignWizard({
                     ? ""
                     : ` - ${STEPS[currentStep]}`}
                 </DialogTitle>
-                <DialogDescription className="max-w-3xl text-sm text-slate-600 md:text-base">
+                <DialogDescription className="max-w-3xl text-xs text-slate-600 sm:text-sm md:text-base">
                   {shouldShowModePicker
                     ? "Choose how you want to create your survey."
                     : activeStepTheme.subtitle}
@@ -542,7 +542,7 @@ export function CampaignWizard({
         </div>
 
         {lastSavedAt && (
-          <div className="px-6 pt-3 md:px-8">
+          <div className="px-3 pt-2 sm:px-4 md:px-8 md:pt-3">
             <p className="inline-flex rounded-md border border-slate-300 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-800 shadow-sm">
               Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
             </p>
@@ -551,7 +551,7 @@ export function CampaignWizard({
 
         <div
           className={cn(
-            "flex-1 min-h-0 overflow-y-auto px-6 py-5 md:px-8",
+            "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 sm:px-4 md:px-8 md:py-5",
             shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
           )}
         >
@@ -609,12 +609,12 @@ export function CampaignWizard({
           </div>
         </div>
 
-        <div className="shrink-0 flex justify-between px-6 py-4 border-t bg-slate-100/95 md:px-8">
+        <div className="shrink-0 flex flex-wrap justify-between gap-2 px-3 py-3 border-t bg-slate-100/95 sm:px-4 md:px-8 md:py-4">
           <Button
             variant="default"
             onClick={handleBack}
             disabled={(currentStep === 0 && shouldShowModePicker) || isSubmitting}
-            className="h-11 px-5 text-base bg-slate-700 text-white hover:bg-slate-800"
+            className="h-11 flex-1 min-w-[130px] px-4 text-base bg-slate-700 text-white hover:bg-slate-800 sm:flex-none sm:px-5"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
@@ -628,7 +628,7 @@ export function CampaignWizard({
                 setCurrentStep(0);
               }}
               disabled={!wizardData.creationMode}
-              className="h-11 px-6 text-base"
+              className="h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
             >
               Continue
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -637,7 +637,7 @@ export function CampaignWizard({
             <Button
               onClick={handleSubmit}
               disabled={!canProceed() || isSubmitting}
-              className="cw-soft-pulse h-11 px-6 text-base"
+              className="cw-soft-pulse h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
             >
               {isSubmitting
                 ? wizardData.campaignId
@@ -650,7 +650,7 @@ export function CampaignWizard({
           ) : (
             <Button
               onClick={handleNext}
-              className="cw-soft-pulse h-11 px-6 text-base"
+              className="cw-soft-pulse h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
             >
               {isQuickStart && currentStep === 0
                 ? "Continue to questions"
