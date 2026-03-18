@@ -186,7 +186,7 @@ export function AdminUsersManager() {
         <h1 className="font-semibold text-lg">Admin Users</h1>
       </header>
 
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="mx-auto w-full max-w-[1400px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>

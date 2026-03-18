@@ -158,7 +158,7 @@ export function SettingsManager() {
         <Separator orientation="vertical" className="mr-2 h-4" />
         <h1 className="font-semibold text-lg">Settings</h1>
       </header>
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="mx-auto w-full max-w-[1100px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="easy-form-shell">
         <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Settings</h2>

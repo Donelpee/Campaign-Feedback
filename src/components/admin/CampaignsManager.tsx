@@ -578,7 +578,7 @@ export function CampaignsManager({
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1400px]">
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

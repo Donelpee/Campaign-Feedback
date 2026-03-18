@@ -42,7 +42,7 @@ export function NotificationsManager() {
         <h1 className="font-semibold text-lg">Notification Center</h1>
       </header>
 
-      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
+      <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1100px]">
           <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>

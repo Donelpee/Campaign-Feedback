@@ -772,7 +772,7 @@ export function DashboardOverview() {
         <div />
       </header>
 
-      <main className="template-content flex-1 overflow-auto">
+      <main className="template-content flex-1 overflow-y-auto overflow-x-hidden">
         <div className="mx-auto w-full max-w-[1400px] space-y-6">
           <div className="space-y-1">
             <div className="flex items-center gap-3">

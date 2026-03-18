@@ -3,16 +3,18 @@ import { useAdminNotifications } from "@/hooks/useAdminNotifications";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useSidebar } from "@/components/ui/sidebar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
-import { Bell, CalendarDays, CheckCheck, UserCircle2 } from "lucide-react";
+import { Bell, CalendarDays, CheckCheck, PanelLeft, UserCircle2 } from "lucide-react";
 
 export function AdminGlobalNotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
+  const { toggleSidebar } = useSidebar();
   const {
     notifications,
     unreadCount,
@@ -22,6 +24,18 @@ export function AdminGlobalNotificationBell() {
   } = useAdminNotifications({ enableToasts: true });
 
   return (
+    <>
+    <div className="fixed left-2 top-2 z-50 md:hidden">
+      <Button
+        variant="outline"
+        size="icon"
+        className="h-9 w-9 rounded-lg border-slate-200 bg-white/95 text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.08)]"
+        onClick={toggleSidebar}
+      >
+        <PanelLeft className="h-4 w-4" />
+        <span className="sr-only">Open navigation</span>
+      </Button>
+    </div>
     <div className="fixed right-2 top-2 z-50 sm:right-4 sm:top-3 md:right-6 md:top-4">
       <div className="admin-global-bell flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 text-sm text-slate-600 shadow-[0_8px_26px_rgba(15,23,42,0.07)] backdrop-blur sm:gap-3 sm:px-3 sm:py-2 md:gap-4 md:rounded-2xl md:px-4">
         <div className="hidden lg:flex items-center gap-2">
@@ -137,5 +151,6 @@ export function AdminGlobalNotificationBell() {
         )}
       </div>
     </div>
+    </>
   );
 }
