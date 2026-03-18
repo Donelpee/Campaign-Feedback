@@ -159,7 +159,7 @@ export function StepReview({
               </p>
               <p className="text-sm text-slate-600">{sceneContent[mode].description}</p>
             </div>
-            <div className={cn("grid min-w-[220px] gap-2 rounded-xl border px-4 py-3 text-right", modeTone.accentSurfaceClass)}>
+            <div className={cn("grid w-full gap-2 rounded-xl border px-4 py-3 text-left md:min-w-[220px] md:text-right", modeTone.accentSurfaceClass)}>
               <p className={cn("text-sm font-semibold uppercase tracking-wide", modeTone.accentTextClass)}>
                 Mode: {creationModeLabel[mode]}
               </p>
