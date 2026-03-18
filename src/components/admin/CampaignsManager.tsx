@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -31,13 +32,17 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock } from "lucide-react";
+import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock, Building2 } from "lucide-react";
 import { CampaignWizard } from "./campaign-wizard";
-import type { WizardData } from "./campaign-wizard/CampaignWizard";
+import type {
+  CreationMode,
+  WizardData,
+} from "./campaign-wizard/CampaignWizard";
 import type { Campaign } from "@/lib/supabase-types";
 
 const LOCAL_CAMPAIGNS_KEY = "client-pulse-local-campaigns";
-const WIZARD_DRAFT_KEY = "campaign-wizard-draft-v1";
+const WIZARD_DRAFT_KEYS = ["campaign-wizard-draft-v2", "campaign-wizard-draft-v1"];
+const DEFAULT_CREATION_MODE_KEY = "campaign-default-creation-mode";
 
 function readLocalCampaigns(): Campaign[] {
   try {
@@ -56,19 +61,21 @@ function writeLocalCampaigns(campaigns: Campaign[]) {
 
 function hasSavedWizardDraft(): boolean {
   try {
-    const raw = window.localStorage.getItem(WIZARD_DRAFT_KEY);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as { data?: WizardData };
-    const draft = parsed?.data;
-    if (!draft) return false;
-    return Boolean(
-      draft.selectedCompanyId ||
-        draft.name?.trim() ||
-        draft.description?.trim() ||
-        draft.startDate ||
-        draft.endDate ||
-        draft.questions?.length,
-    );
+    return WIZARD_DRAFT_KEYS.some((key) => {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw) as { data?: WizardData };
+      const draft = parsed?.data;
+      if (!draft) return false;
+      return Boolean(
+        draft.selectedCompanyId ||
+          draft.name?.trim() ||
+          draft.description?.trim() ||
+          draft.startDate ||
+          draft.endDate ||
+          draft.questions?.length,
+      );
+    });
   } catch {
     return false;
   }
@@ -110,16 +117,45 @@ export function CampaignsManager({
   setWizardDraft: (draft: WizardData | null) => void;
 }) {
   const { toast } = useToast();
-  const { bypassAuth } = useAuth();
+  const { bypassAuth, user } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [responseCountByCampaign, setResponseCountByCampaign] = useState<
     Record<string, number>
   >({});
   const [campaignCompanyById, setCampaignCompanyById] = useState<
-    Record<string, { companyId: string; companyName: string }>
+    Record<string, { companyId: string; companyName: string; logoUrl: string | null }>
   >({});
   const [showDraftDecision, setShowDraftDecision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [defaultCreationMode, setDefaultCreationMode] =
+    useState<CreationMode>("guided_buddy");
+
+  const loadDefaultCreationMode = useCallback(async () => {
+    if (bypassAuth) {
+      const local = window.localStorage.getItem(
+        DEFAULT_CREATION_MODE_KEY,
+      ) as CreationMode | null;
+      setDefaultCreationMode(local || "guided_buddy");
+      return;
+    }
+
+    if (!user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from("user_settings")
+        .select("default_creation_mode")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (error) throw error;
+      setDefaultCreationMode(
+        (data?.default_creation_mode as CreationMode) || "guided_buddy",
+      );
+    } catch (error) {
+      console.error("Error loading default creation mode:", error);
+      setDefaultCreationMode("guided_buddy");
+    }
+  }, [bypassAuth, user?.id]);
 
   const loadCampaigns = useCallback(async () => {
     if (bypassAuth) {
@@ -137,7 +173,7 @@ export function CampaignsManager({
           .order("start_date", { ascending: false }),
         supabase
           .from("company_campaign_links")
-          .select("id, campaign_id, company_id, company:company_id (name)"),
+          .select("id, campaign_id, company_id, company:company_id (name, logo_url)"),
       ]);
 
       if (campaignsRes.error) throw campaignsRes.error;
@@ -155,7 +191,7 @@ export function CampaignsManager({
 
       const campaignCompanyMap: Record<
         string,
-        { companyId: string; companyName: string }
+        { companyId: string; companyName: string; logoUrl: string | null }
       > = {};
       const linkIdsByCampaign: Record<string, string[]> = {};
 
@@ -170,6 +206,9 @@ export function CampaignsManager({
             companyName:
               ((link.company as { name?: string } | null)?.name as string) ||
               "Selected company",
+            logoUrl:
+              ((link.company as { logo_url?: string | null } | null)
+                ?.logo_url as string | null) || null,
           };
         }
       });
@@ -215,6 +254,28 @@ export function CampaignsManager({
   useEffect(() => {
     loadCampaigns();
   }, [loadCampaigns]);
+
+  useEffect(() => {
+    loadDefaultCreationMode();
+  }, [loadDefaultCreationMode]);
+
+  const handleDefaultCreationModeChange = async (mode: CreationMode) => {
+    setDefaultCreationMode(mode);
+    if (bypassAuth) {
+      window.localStorage.setItem(DEFAULT_CREATION_MODE_KEY, mode);
+      return;
+    }
+    if (!user?.id) return;
+    try {
+      const { error } = await supabase.from("user_settings").upsert(
+        { user_id: user.id, default_creation_mode: mode },
+        { onConflict: "user_id" },
+      );
+      if (error) throw error;
+    } catch (error) {
+      console.error("Error saving default creation mode:", error);
+    }
+  };
 
   const handleCreateCampaign = async (data: WizardData) => {
     if (bypassAuth) {
@@ -492,7 +553,7 @@ export function CampaignsManager({
     const campaignCompany = campaignCompanyById[campaign.id];
     setWizardDraft({
       campaignId: campaign.id,
-      buildMode: "manual",
+      creationMode: "guided_buddy",
       campaignType: campaign.campaign_type,
       selectedCompanyId: campaignCompany?.companyId || "",
       selectedCompanyName: campaignCompany?.companyName || "",
@@ -556,6 +617,7 @@ export function CampaignsManager({
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>Company</TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Status</TableHead>
@@ -573,6 +635,27 @@ export function CampaignsManager({
                     );
                     return (
                       <TableRow key={campaign.id}>
+                        <TableCell>
+                          {campaignCompanyById[campaign.id] ? (
+                            <div className="flex items-center gap-3">
+                              <Avatar className="h-8 w-8 rounded-md">
+                                <AvatarImage
+                                  src={campaignCompanyById[campaign.id].logoUrl || undefined}
+                                  alt={campaignCompanyById[campaign.id].companyName}
+                                  className="object-cover"
+                                />
+                                <AvatarFallback className="rounded-md bg-muted">
+                                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="text-sm font-medium">
+                                {campaignCompanyById[campaign.id].companyName}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
                         <TableCell className="font-medium">
                           {campaign.name}
                         </TableCell>
@@ -642,6 +725,8 @@ export function CampaignsManager({
         }}
         onComplete={handleCreateCampaign}
         initialDraft={wizardDraft}
+        defaultCreationMode={defaultCreationMode}
+        onDefaultCreationModeChange={handleDefaultCreationModeChange}
       />
 
       <AlertDialog open={showDraftDecision} onOpenChange={setShowDraftDecision}>
@@ -657,7 +742,9 @@ export function CampaignsManager({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                window.localStorage.removeItem(WIZARD_DRAFT_KEY);
+                WIZARD_DRAFT_KEYS.forEach((key) =>
+                  window.localStorage.removeItem(key),
+                );
                 setWizardDraft(null);
                 setIsWizardOpen(true);
               }}

@@ -98,12 +98,34 @@ export interface FeedbackResponse {
 export interface UserSettings {
   id: string;
   user_id: string;
+  in_app_campaign_notifications: boolean;
+  default_creation_mode:
+    | "guided_buddy"
+    | "quick_start"
+    | "template_story"
+    | "conversation_builder";
+  dark_mode_enabled: boolean;
+  color_theme: "ocean" | "meadow";
   email_notifications: boolean;
   weekly_summary: boolean;
   compact_view: boolean;
   show_response_timestamps: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface AdminNotification {
+  id: string;
+  user_id: string;
+  response_id: string | null;
+  campaign_id: string | null;
+  company_id: string | null;
+  notification_type: string;
+  title: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  read_at: string | null;
+  created_at: string;
 }
 
 export interface UserRole {

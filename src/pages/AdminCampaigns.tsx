@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { AdminGlobalNotificationBell } from "@/components/admin/AdminGlobalNotificationBell";
 import { CampaignsManager } from "@/components/admin/CampaignsManager";
 import { PermissionGuard } from "@/components/admin/PermissionGuard";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -64,6 +65,7 @@ export default function AdminCampaigns() {
             }
           }}
         />
+        <AdminGlobalNotificationBell />
         <SidebarInset className="bg-transparent">
           <PermissionGuard permission="campaigns">
             <CampaignsManager

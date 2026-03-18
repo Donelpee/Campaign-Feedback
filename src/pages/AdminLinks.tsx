@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
+import { AdminGlobalNotificationBell } from "@/components/admin/AdminGlobalNotificationBell";
 import { LinksManager } from "@/components/admin/LinksManager";
 import { PermissionGuard } from "@/components/admin/PermissionGuard";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -40,6 +41,7 @@ export default function AdminLinks() {
     <SidebarProvider>
       <div className="admin-theme admin-shell-bg min-h-screen flex w-full" role="main">
         <AdminSidebar />
+        <AdminGlobalNotificationBell />
         <SidebarInset className="bg-transparent">
           <PermissionGuard permission="links">
             <LinksManager />

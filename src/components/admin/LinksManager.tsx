@@ -11,10 +11,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +56,7 @@ import {
   Mail,
   Send,
   RefreshCw,
+  Building2,
 } from "lucide-react";
 import type {
   Company,
@@ -119,6 +126,9 @@ export function LinksManager() {
   const [isSavingDistribution, setIsSavingDistribution] = useState(false);
   const [isDispatchingInvites, setIsDispatchingInvites] = useState(false);
   const [isDispatchingReminders, setIsDispatchingReminders] = useState(false);
+  const availableCampaigns = campaigns.filter(
+    (campaign) => !links.some((link) => link.campaign_id === campaign.id),
+  );
 
   const sb = supabase as unknown as {
     from: (table: string) => {
@@ -157,12 +167,47 @@ export function LinksManager() {
       if (companiesRes.error) throw companiesRes.error;
       if (campaignsRes.error) throw campaignsRes.error;
 
+      const mappedLinks = (linksRes.data || []).map((link) => ({
+        ...link,
+        company: link.company as unknown as Company,
+        campaign: link.campaign as unknown as Campaign,
+      })) as LinkWithDetails[];
+
+      const staleActiveLinks = mappedLinks.filter(
+        (link) =>
+          link.is_active &&
+          !isCampaignActiveNow(link.campaign.start_date, link.campaign.end_date),
+      );
+      const shouldReactivateLinks = mappedLinks.filter(
+        (link) =>
+          !link.is_active &&
+          isCampaignActiveNow(link.campaign.start_date, link.campaign.end_date),
+      );
+
+      const pendingStatusUpdates = [
+        ...staleActiveLinks.map((link) => ({ id: link.id, is_active: false })),
+        ...shouldReactivateLinks.map((link) => ({ id: link.id, is_active: true })),
+      ];
+
+      if (pendingStatusUpdates.length > 0) {
+        await Promise.all(
+          pendingStatusUpdates.map((update) =>
+            supabase
+              .from("company_campaign_links")
+              .update({ is_active: update.is_active })
+              .eq("id", update.id),
+          ),
+        );
+      }
+
       setLinks(
-        (linksRes.data || []).map((link) => ({
-          ...link,
-          company: link.company as unknown as Company,
-          campaign: link.campaign as unknown as Campaign,
-        })),
+        mappedLinks.map((link) =>
+          staleActiveLinks.some((stale) => stale.id === link.id)
+            ? { ...link, is_active: false }
+            : shouldReactivateLinks.some((activeLink) => activeLink.id === link.id)
+              ? { ...link, is_active: true }
+              : link,
+        ),
       );
       setCompanies((companiesRes.data || []) as Company[]);
       setCampaigns(
@@ -198,7 +243,7 @@ export function LinksManager() {
       return;
     }
 
-    // Check if campaign already has a link
+    // A campaign can have only one generated link.
     const existing = links.find((l) => l.campaign_id === selectedCampaign);
     if (existing) {
       toast({
@@ -215,20 +260,6 @@ export function LinksManager() {
         variant: "destructive",
         title: "Error",
         description: "Selected campaign was not found.",
-      });
-      return;
-    }
-
-    if (
-      !isCampaignActiveNow(
-        selectedCampaignRecord.start_date,
-        selectedCampaignRecord.end_date,
-      )
-    ) {
-      toast({
-        variant: "destructive",
-        title: "Campaign is inactive",
-        description: "Links can only be generated for active campaigns.",
       });
       return;
     }
@@ -521,22 +552,8 @@ export function LinksManager() {
   };
 
   const getStatus = (startDate: string, endDate: string, isActive: boolean) => {
-    if (!isActive) {
-      return { label: "Inactive", variant: "secondary" as const };
-    }
-
-    const now = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
-
-    if (now < start) {
-      return { label: "Upcoming", variant: "outline" as const };
-    } else if (now > end) {
-      return { label: "Expired", variant: "destructive" as const };
-    } else {
-      return { label: "Active", variant: "default" as const };
-    }
+    if (!isActive) return { label: "Inactive", variant: "secondary" as const };
+    return { label: "Active", variant: "default" as const };
   };
 
   return (
@@ -560,7 +577,7 @@ export function LinksManager() {
             </div>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
-                <Button>
+                <Button disabled={availableCampaigns.length === 0}>
                   <Plus className="mr-2 h-4 w-4" />
                   Generate Link
                 </Button>
@@ -573,7 +590,10 @@ export function LinksManager() {
                     campaign.
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="easy-form-shell space-y-4 py-4">
+                  <p className="text-sm text-muted-foreground">
+                    Pick the company first, then choose its campaign to generate one unique link.
+                  </p>
                   <div className="space-y-2">
                     <Label>Company</Label>
                     <Select
@@ -583,47 +603,49 @@ export function LinksManager() {
                       <SelectTrigger>
                         <SelectValue placeholder="Select a company" />
                       </SelectTrigger>
-                      <SelectContent>
-                        {companies.map((company) => (
-                          <SelectItem key={company.id} value={company.id}>
-                            {company.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
+                        <SelectContent>
+                          {companies.map((company) => (
+                            <SelectItem key={company.id} value={company.id}>
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-5 w-5 rounded-sm">
+                                  <AvatarImage
+                                    src={company.logo_url || undefined}
+                                    alt={company.name}
+                                    className="object-cover"
+                                  />
+                                  <AvatarFallback className="rounded-sm bg-muted p-0">
+                                    <Building2 className="h-3 w-3 text-muted-foreground" />
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span>{company.name}</span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-2">
                     <Label>Campaign</Label>
-                      <Select
-                        value={selectedCampaign}
-                        onValueChange={setSelectedCampaign}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a campaign" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {campaigns
-                            .filter((campaign) =>
-                              isCampaignActiveNow(
-                                campaign.start_date,
-                                campaign.end_date,
-                              ),
-                            )
-                            .filter(
-                              (campaign) =>
-                                !links.some((link) => link.campaign_id === campaign.id),
-                            )
-                            .map((campaign) => (
-                              <SelectItem key={campaign.id} value={campaign.id}>
-                                {campaign.name}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Only active campaigns without an existing link are listed.
-                      </p>
-                    </div>
+                    <Select
+                      value={selectedCampaign}
+                      onValueChange={setSelectedCampaign}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a campaign" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableCampaigns
+                          .map((campaign) => (
+                            <SelectItem key={campaign.id} value={campaign.id}>
+                              {campaign.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Campaigns with existing links are hidden.
+                    </p>
+                  </div>
                 </div>
                 <DialogFooter>
                   <Button
@@ -681,10 +703,29 @@ export function LinksManager() {
                     );
                     return (
                       <TableRow key={link.id}>
-                        <TableCell className="font-medium">
-                          {link.company.name}
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-9 w-9 rounded-md">
+                              <AvatarImage
+                                src={link.company.logo_url || undefined}
+                                alt={link.company.name}
+                                className="object-cover"
+                              />
+                              <AvatarFallback className="rounded-md bg-muted">
+                                <Building2 className="h-4 w-4 text-muted-foreground" />
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="font-medium">{link.company.name}</span>
+                          </div>
                         </TableCell>
-                        <TableCell>{link.campaign.name}</TableCell>
+                        <TableCell>
+                          <div className="space-y-0.5">
+                            <p className="font-medium">{link.campaign.name}</p>
+                            <p className="text-xs text-muted-foreground">
+                              /feedback/{link.unique_code}
+                            </p>
+                          </div>
+                        </TableCell>
                         <TableCell>
                           <Badge variant={status.variant}>{status.label}</Badge>
                         </TableCell>
@@ -712,8 +753,18 @@ export function LinksManager() {
                               size="icon"
                               onClick={() => handleCopyLink(link.unique_code)}
                               title="Copy link"
+                              disabled={!link.is_active}
                             >
-                              <Copy className="h-4 w-4" />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex">
+                                    <Copy className="h-4 w-4" />
+                                  </span>
+                                </TooltipTrigger>
+                                {!link.is_active && (
+                                  <TooltipContent>Activate link to copy URL.</TooltipContent>
+                                )}
+                              </Tooltip>
                             </Button>
                             <Button
                               variant="ghost"
@@ -725,8 +776,18 @@ export function LinksManager() {
                                 )
                               }
                               title="Open link"
+                              disabled={!link.is_active}
                             >
-                              <ExternalLink className="h-4 w-4" />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="inline-flex">
+                                    <ExternalLink className="h-4 w-4" />
+                                  </span>
+                                </TooltipTrigger>
+                                {!link.is_active && (
+                                  <TooltipContent>Activate link to open URL.</TooltipContent>
+                                )}
+                              </Tooltip>
                             </Button>
                             <Button
                               variant="ghost"

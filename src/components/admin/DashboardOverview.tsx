@@ -8,7 +8,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -50,9 +49,6 @@ import {
   Percent,
   CalendarRange,
   Target,
-  Bell,
-  UserCircle2,
-  CalendarDays,
   LayoutDashboard,
   FilterX,
   MessageSquareText,
@@ -773,18 +769,7 @@ export function DashboardOverview() {
         <div className="flex items-center gap-2">
           <SidebarTrigger className="-ml-1" />
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <div className="hidden md:flex items-center gap-2">
-            <CalendarDays className="h-4 w-4" />
-            <span>{new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
-          </div>
-          <Separator orientation="vertical" className="h-4" />
-          <Bell className="h-5 w-5" />
-          <div className="flex items-center gap-2 font-medium text-foreground">
-            <UserCircle2 className="h-5 w-5" />
-            <span>System Administrator</span>
-          </div>
-        </div>
+        <div />
       </header>
 
       <main className="template-content flex-1 overflow-auto">

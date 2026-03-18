@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,22 +7,31 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ClipboardList,
+  Sparkles,
+  ShieldCheck,
+} from "lucide-react";
 import { StepBasicInfo } from "./StepBasicInfo";
 import { StepQuestions } from "./StepQuestions";
 import { StepReview } from "./StepReview";
-import { supabase } from "@/integrations/supabase/client";
-import type { Company } from "@/lib/supabase-types";
 import type { CampaignType, CampaignQuestion } from "@/lib/supabase-types";
 import { cn } from "@/lib/utils";
+import { ModePicker } from "./ModePicker";
+import { GuidedBuddyPanel } from "./GuidedBuddyPanel";
 
-export type BuildMode = "ai" | "upload" | "manual";
+export type CreationMode =
+  | "guided_buddy"
+  | "quick_start"
+  | "template_story"
+  | "conversation_builder";
 
 export interface WizardData {
   draftId?: string;
   campaignId?: string;
-  buildMode?: BuildMode;
+  creationMode?: CreationMode;
   campaignType: CampaignType;
   selectedCompanyId: string;
   selectedCompanyName: string;
@@ -40,12 +49,17 @@ interface CampaignWizardProps {
   onOpenChange: (open: boolean) => void;
   onComplete: (data: WizardData) => Promise<void>;
   initialDraft?: WizardData | null;
+  defaultCreationMode?: CreationMode | null;
+  onDefaultCreationModeChange?: (mode: CreationMode) => Promise<void> | void;
 }
 
 const STEPS = ["Basic Info", "Build Form", "Review"];
-const WIZARD_DRAFT_KEY = "campaign-wizard-draft-v1";
+const WIZARD_DRAFT_KEY_V2 = "campaign-wizard-draft-v2";
+const WIZARD_DRAFT_KEY_V1 = "campaign-wizard-draft-v1";
+const WIZARD_DRAFT_VERSION = 2;
 
 interface StoredWizardDraft {
+  version: number;
   data: WizardData;
   step: number;
   updatedAt: string;
@@ -63,13 +77,55 @@ const EMPTY_WIZARD_DATA: WizardData = {
   documentContent: "",
 };
 
+function mapLegacyBuildMode(value: unknown): CreationMode | undefined {
+  if (value === "manual") return "guided_buddy";
+  if (value === "ai") return "conversation_builder";
+  if (value === "upload") return "template_story";
+  return undefined;
+}
+
+function normalizeDraftData(data: unknown): WizardData {
+  const incoming = (data && typeof data === "object" ? data : {}) as WizardData & {
+    buildMode?: string;
+  };
+  const legacyMode = mapLegacyBuildMode(incoming.buildMode);
+  const normalizedMode =
+    incoming.creationMode && incoming.creationMode.length > 0
+      ? incoming.creationMode
+      : legacyMode;
+
+  return {
+    ...EMPTY_WIZARD_DATA,
+    ...incoming,
+    creationMode: normalizedMode,
+  };
+}
+
 function readStoredDraft(): StoredWizardDraft | null {
   try {
-    const raw = window.localStorage.getItem(WIZARD_DRAFT_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredWizardDraft;
+    const rawV2 = window.localStorage.getItem(WIZARD_DRAFT_KEY_V2);
+    if (rawV2) {
+      const parsed = JSON.parse(rawV2) as StoredWizardDraft;
+      if (!parsed || typeof parsed !== "object" || !parsed.data) return null;
+      return {
+        version: WIZARD_DRAFT_VERSION,
+        data: normalizeDraftData(parsed.data),
+        step: Number(parsed.step) || 0,
+        updatedAt: parsed.updatedAt || new Date().toISOString(),
+      };
+    }
+
+    const rawV1 = window.localStorage.getItem(WIZARD_DRAFT_KEY_V1);
+    if (!rawV1) return null;
+    const parsed = JSON.parse(rawV1) as { data?: WizardData; step?: number; updatedAt?: string };
     if (!parsed || typeof parsed !== "object" || !parsed.data) return null;
-    return parsed;
+
+    return {
+      version: WIZARD_DRAFT_VERSION,
+      data: normalizeDraftData(parsed.data),
+      step: Number(parsed.step) || 0,
+      updatedAt: parsed.updatedAt || new Date().toISOString(),
+    };
   } catch {
     return null;
   }
@@ -92,56 +148,51 @@ export function CampaignWizard({
   onOpenChange,
   onComplete,
   initialDraft,
+  defaultCreationMode,
+  onDefaultCreationModeChange,
 }: CampaignWizardProps) {
-  const [company, setCompany] = useState<Company | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
-  // progress must be after currentStep is defined
-  const progress = ((currentStep + 1) / STEPS.length) * 100;
+  const [showModePicker, setShowModePicker] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showValidation, setShowValidation] = useState(false);
   const [wizardData, setWizardData] = useState<WizardData>(
-    initialDraft || EMPTY_WIZARD_DATA,
+    normalizeDraftData(initialDraft || EMPTY_WIZARD_DATA),
   );
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-
-  // Load company info for sticky header
-  useEffect(() => {
-    if (!wizardData.selectedCompanyId) {
-      setCompany(null);
-      return;
-    }
-    const loadCompany = async () => {
-      const { data: row } = await supabase
-        .from("companies")
-        .select("*")
-        .eq("id", wizardData.selectedCompanyId)
-        .maybeSingle();
-      setCompany(row ?? null);
-    };
-    loadCompany();
-  }, [wizardData.selectedCompanyId]);
 
   // On open, set wizardData to initialDraft or blank
   useEffect(() => {
     if (!open) return;
     if (initialDraft) {
-      setWizardData(initialDraft);
+      const normalized = normalizeDraftData(initialDraft);
+      setWizardData(normalized);
       setCurrentStep(0);
+      setShowModePicker(!normalized.creationMode && !normalized.campaignId);
       setLastSavedAt(new Date().toISOString());
     } else {
       const stored = readStoredDraft();
       if (stored?.data) {
-        setWizardData({ ...EMPTY_WIZARD_DATA, ...stored.data });
+        setWizardData(stored.data);
         setCurrentStep(
           Math.max(0, Math.min(STEPS.length - 1, Number(stored.step) || 0)),
         );
+        setShowModePicker(!stored.data.creationMode);
         setLastSavedAt(stored.updatedAt || null);
       } else {
-        setWizardData(EMPTY_WIZARD_DATA);
+        setWizardData({
+          ...EMPTY_WIZARD_DATA,
+          creationMode: defaultCreationMode || undefined,
+        });
         setCurrentStep(0);
+        setShowModePicker(!defaultCreationMode);
         setLastSavedAt(null);
       }
     }
-  }, [open, initialDraft]);
+  }, [open, initialDraft, defaultCreationMode]);
+
+  useEffect(() => {
+    document.documentElement.classList.remove("dark");
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -149,33 +200,236 @@ export function CampaignWizard({
 
     const updatedAt = new Date().toISOString();
     const payload: StoredWizardDraft = {
+      version: WIZARD_DRAFT_VERSION,
       data: wizardData,
       step: currentStep,
       updatedAt,
     };
 
-    window.localStorage.setItem(WIZARD_DRAFT_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(WIZARD_DRAFT_KEY_V2, JSON.stringify(payload));
+    window.localStorage.removeItem(WIZARD_DRAFT_KEY_V1);
     setLastSavedAt(updatedAt);
   }, [open, wizardData, currentStep]);
 
   const canProceed = () => {
+    const nameLongEnough = wizardData.name.trim().length >= 10;
+    const goalLongEnough = wizardData.description.trim().length >= 10;
+    const baseValid = Boolean(
+      wizardData.selectedCompanyId &&
+        nameLongEnough &&
+        wizardData.startDate &&
+        wizardData.endDate &&
+        wizardData.endDate >= wizardData.startDate,
+    );
+
     switch (currentStep) {
       case 0:
-        return (
-          wizardData.selectedCompanyId &&
-          wizardData.name.trim() &&
-          wizardData.description.trim() &&
-          wizardData.startDate &&
-          wizardData.endDate
-        );
+        if (wizardData.creationMode === "quick_start") {
+          return baseValid;
+        }
+        return baseValid && goalLongEnough;
       case 1:
         return wizardData.questions.length > 0;
       case 2:
-        return true;
+        return Boolean(
+          wizardData.creationMode &&
+            baseValid &&
+            (wizardData.creationMode === "quick_start" || goalLongEnough) &&
+            wizardData.questions.length > 0,
+        );
       default:
         return false;
     }
   };
+
+  const nextLabels = ["Looks good, continue", "Great, let's review"];
+
+  const getStepProgress = () => {
+    if (currentStep === 0) {
+      const requirements =
+        wizardData.creationMode === "quick_start"
+          ? [
+              Boolean(wizardData.selectedCompanyId),
+              wizardData.name.trim().length >= 10,
+              Boolean(wizardData.startDate),
+              Boolean(wizardData.endDate),
+              Boolean(
+                wizardData.startDate &&
+                  wizardData.endDate &&
+                  wizardData.endDate >= wizardData.startDate,
+              ),
+            ]
+          : [
+              Boolean(wizardData.selectedCompanyId),
+              wizardData.name.trim().length >= 10,
+              wizardData.description.trim().length >= 10,
+              Boolean(wizardData.startDate),
+              Boolean(wizardData.endDate),
+              Boolean(
+                wizardData.startDate &&
+                  wizardData.endDate &&
+                  wizardData.endDate >= wizardData.startDate,
+              ),
+            ];
+
+      return requirements.filter(Boolean).length / requirements.length;
+    }
+
+    if (currentStep === 1) {
+      if (wizardData.questions.length === 0) return 0;
+      const clearQuestionCount = wizardData.questions.filter(
+        (question) => question.question.trim().length >= 8,
+      ).length;
+      return clearQuestionCount / wizardData.questions.length;
+    }
+
+    return canProceed() ? 1 : 0.7;
+  };
+
+  const stepThemes = [
+    {
+      icon: ClipboardList,
+      chip: "Setup Page",
+      title: "Campaign Setup",
+      subtitle: "Clear campaign details help your team and respondents understand purpose instantly.",
+      bgClass: "cw-page-surface",
+    },
+    {
+      icon: Sparkles,
+      chip: "Build Page",
+      title: "Question Builder",
+      subtitle: "Use easy actions to build a strong survey with no guesswork.",
+      bgClass: "cw-page-surface-build",
+    },
+    {
+      icon: ShieldCheck,
+      chip: "Review Page",
+      title: "Launch Check",
+      subtitle: "Review every detail clearly before creating the campaign.",
+      bgClass: "cw-page-surface-review",
+    },
+  ] as const;
+
+  const activeStepTheme = stepThemes[currentStep] || stepThemes[0];
+  const isGuidedBuddy = wizardData.creationMode === "guided_buddy";
+  const isQuickStart = wizardData.creationMode === "quick_start";
+  const isTemplateStory = wizardData.creationMode === "template_story";
+  const isConversationBuilder = wizardData.creationMode === "conversation_builder";
+  const shouldShowModePicker = showModePicker && !wizardData.campaignId;
+
+  const modeStepCopy = useMemo(() => {
+    const shortName =
+      wizardData.name.trim().length > 0 && wizardData.name.trim().length < 10;
+    const shortGoal =
+      wizardData.creationMode !== "quick_start" &&
+      wizardData.description.trim().length > 0 &&
+      wizardData.description.trim().length < 10;
+    const needsMoreWords = currentStep === 0 && (shortName || shortGoal);
+
+    if (isQuickStart) {
+      if (currentStep === 0) {
+        return {
+          mood: needsMoreWords ? ("idle" as const) : ("point" as const),
+          title: "Quick setup time. Let us fill the essentials fast.",
+          subtitle: needsMoreWords
+            ? "Write at least 10 characters in field 2."
+            : "Pick company, name the campaign, then set dates.",
+        };
+      }
+      if (currentStep === 1) {
+        return {
+          mood: "point" as const,
+          title: "Great. Add 3 starters or create your own questions.",
+          subtitle: "Keep each question short and easy to answer.",
+        };
+      }
+      return {
+        mood: "celebrate" as const,
+        title: "Quick Start is ready to launch.",
+        subtitle: "Review quickly, then create your campaign.",
+      };
+    }
+
+    if (isTemplateStory) {
+      if (currentStep === 0) {
+        return {
+          mood: needsMoreWords ? ("idle" as const) : ("point" as const),
+          title: "Howdy, let us set up your story campaign.",
+          subtitle: needsMoreWords
+            ? "Write at least 10 characters in the short field."
+            : "Pick company, add campaign story name, then set dates.",
+        };
+      }
+      if (currentStep === 1) {
+        return {
+          mood: "point" as const,
+          title: "Choose one story template and I will help from there.",
+          subtitle: "You can still edit every question after selection.",
+        };
+      }
+      return {
+        mood: "celebrate" as const,
+        title: "Nice work, your story survey is lined up.",
+        subtitle: "Give it one final look before launch.",
+      };
+    }
+
+    if (isConversationBuilder) {
+      if (currentStep === 0) {
+        return {
+          mood: needsMoreWords ? ("idle" as const) : ("point" as const),
+          title: "Let us set up your campaign first.",
+          subtitle: needsMoreWords
+            ? "Write at least 10 characters in field 2 or 3."
+            : "Then we will build prompts one by one.",
+        };
+      }
+      if (currentStep === 1) {
+        return {
+          mood: "point" as const,
+          title: "Now we talk to users in short prompt steps.",
+          subtitle: "Start with welcome, then quality, then improvement.",
+        };
+      }
+      return {
+        mood: "celebrate" as const,
+        title: "Great, your conversation flow is complete.",
+        subtitle: "Check and create when ready.",
+      };
+    }
+
+    if (!isGuidedBuddy) return null;
+    if (currentStep === 0) {
+      return {
+        mood: needsMoreWords ? ("idle" as const) : ("point" as const),
+        title: "First, tell me who this survey is for.",
+        subtitle: needsMoreWords
+          ? "Write at least 10 characters in field 2 or 3."
+          : "Pick company, name, and dates. Keep it simple.",
+      };
+    }
+    if (currentStep === 1) {
+      return {
+        mood: "point" as const,
+        title: "Great. Now add clear questions.",
+        subtitle: "Keep each question short and easy to answer.",
+      };
+    }
+    return {
+      mood: "celebrate" as const,
+      title: "Everything looks ready to launch.",
+      subtitle: "Review once, then create your campaign.",
+    };
+  }, [
+    currentStep,
+    isQuickStart,
+    isConversationBuilder,
+    isGuidedBuddy,
+    isTemplateStory,
+    wizardData.creationMode,
+    wizardData.description,
+    wizardData.name,
+  ]);
 
   const updateWizardData = (data: Partial<WizardData>) => {
     setWizardData((prev) => ({ ...prev, ...data }));
@@ -190,22 +444,52 @@ export function CampaignWizard({
             onChange={updateWizardData}
             isEditing={Boolean(wizardData.campaignId)}
             lockStartDate={Boolean(wizardData.lockStartDate)}
+            easyMode
+            showValidation={showValidation}
+            creationMode={wizardData.creationMode}
           />
         );
       case 1:
-        return <StepQuestions data={wizardData} onChange={updateWizardData} />;
+        return (
+          <StepQuestions
+            data={wizardData}
+            onChange={updateWizardData}
+            easyMode
+            showValidation={showValidation}
+            creationMode={wizardData.creationMode}
+          />
+        );
       case 2:
-        return <StepReview data={wizardData} />;
+        return (
+          <StepReview
+            data={wizardData}
+            easyMode
+            onJumpToBuild={() => setCurrentStep(1)}
+            creationMode={wizardData.creationMode}
+          />
+        );
       default:
         return null;
     }
   };
 
   function handleBack() {
+    if (shouldShowModePicker) return;
+    setShowValidation(false);
+    if (currentStep === 0 && !wizardData.campaignId) {
+      setShowModePicker(true);
+      return;
+    }
     setCurrentStep((s) => Math.max(0, s - 1));
   }
 
   function handleNext() {
+    if (shouldShowModePicker) return;
+    if (!canProceed()) {
+      setShowValidation(true);
+      return;
+    }
+    setShowValidation(false);
     if (currentStep < STEPS.length - 1) {
       setCurrentStep((s) => s + 1);
     }
@@ -217,8 +501,10 @@ export function CampaignWizard({
       await onComplete(wizardData);
       setCurrentStep(0);
       setWizardData(EMPTY_WIZARD_DATA);
+      setShowModePicker(true);
       setLastSavedAt(null);
-      window.localStorage.removeItem(WIZARD_DRAFT_KEY);
+      window.localStorage.removeItem(WIZARD_DRAFT_KEY_V2);
+      window.localStorage.removeItem(WIZARD_DRAFT_KEY_V1);
       onOpenChange(false);
     } finally {
       setIsSubmitting(false);
@@ -227,63 +513,131 @@ export function CampaignWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[96vw] h-[94vh] max-w-[1400px] p-0 overflow-hidden flex flex-col border-primary/20 shadow-2xl">
-        <div className="bg-gradient-to-r from-blue-50 via-sky-50 to-amber-50 border-b">
-          <DialogHeader className="px-6 pt-6 pb-4">
-            <DialogTitle className="text-2xl font-semibold tracking-tight">
-              {wizardData.campaignId ? "Edit Campaign / Survey" : "Create Campaign / Survey"} -{" "}
-              {STEPS[currentStep]}
-            </DialogTitle>
-            <DialogDescription className="text-sm">
-              Build and review your campaign questions before publishing. All
-              steps are required. Use the Back and Next buttons to navigate. Your
-              progress is autosaved as a draft.
-            </DialogDescription>
+      <DialogContent className="h-[100vh] w-[100vw] max-w-none rounded-none border-0 p-0 overflow-hidden flex flex-col shadow-none">
+        <div
+          className={cn(
+            "cw-gradient-drift border-b",
+            shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
+          )}
+        >
+          <DialogHeader className="px-6 pt-6 pb-5 md:px-8">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-2">
+                <DialogTitle className="text-2xl font-semibold tracking-tight md:text-3xl">
+                  {wizardData.campaignId
+                    ? "Edit Campaign / Survey"
+                    : "Create Campaign / Survey"}
+                  {shouldShowModePicker || currentStep === 1
+                    ? ""
+                    : ` - ${STEPS[currentStep]}`}
+                </DialogTitle>
+                <DialogDescription className="max-w-3xl text-sm text-slate-600 md:text-base">
+                  {shouldShowModePicker
+                    ? "Choose how you want to create your survey."
+                    : activeStepTheme.subtitle}
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
         </div>
 
-        <div className="space-y-2 px-6 pt-4">
-          <Progress value={progress} className="h-2" />
-          <div className="grid grid-cols-3 gap-2">
-            {STEPS.map((step, index) => (
-              <div
-                key={step}
-                className={cn(
-                  "rounded-md border px-2 py-1.5 text-center text-xs font-medium transition-colors",
-                  index < currentStep && "bg-blue-50 text-blue-700 border-blue-200",
-                  index === currentStep && "bg-primary/10 text-primary border-primary/30",
-                  index > currentStep && "bg-muted/40 text-muted-foreground border-border",
-                )}
-              >
-                {step}
-              </div>
-            ))}
-          </div>
-          {lastSavedAt && (
-            <p className="text-xs text-muted-foreground">
+        {lastSavedAt && (
+          <div className="px-6 pt-3 md:px-8">
+            <p className="inline-flex rounded-md border border-slate-300 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-800 shadow-sm">
               Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
             </p>
+          </div>
+        )}
+
+        <div
+          className={cn(
+            "flex-1 min-h-0 overflow-y-auto px-6 py-5 md:px-8",
+            shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
           )}
+        >
+          <div key={currentStep} className="cw-step-panel mx-auto w-full max-w-[1280px]">
+            <div className="cw-form-calm">
+              {shouldShowModePicker ? (
+              <ModePicker
+                selectedMode={wizardData.creationMode}
+                onModeSelect={(mode) => {
+                  updateWizardData({ creationMode: mode });
+                  onDefaultCreationModeChange?.(mode);
+                  setShowModePicker(false);
+                  setCurrentStep(0);
+                }}
+              />
+            ) : (
+                modeStepCopy ? (
+                  <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <div className="h-full">{renderStep()}</div>
+                    <div className="sticky top-4 h-[calc(100vh-220px)] min-h-[560px] self-start">
+                      <GuidedBuddyPanel
+                        title={modeStepCopy.title}
+                        subtitle={modeStepCopy.subtitle}
+                        mood={modeStepCopy.mood}
+                        scene={
+                          currentStep === 0
+                            ? "setup"
+                            : currentStep === 1
+                              ? "build"
+                              : "review"
+                        }
+                        trackStatus={
+                          (showValidation && !canProceed()) ||
+                          (currentStep === 0 &&
+                            ((wizardData.name.trim().length > 0 &&
+                              wizardData.name.trim().length < 10) ||
+                              (wizardData.creationMode !== "quick_start" &&
+                                wizardData.description.trim().length > 0 &&
+                                wizardData.description.trim().length < 10)))
+                            ? "off_track"
+                            : getStepProgress() >= 0.7
+                              ? "on_track"
+                              : "neutral"
+                        }
+                        step={currentStep + 1}
+                        totalSteps={STEPS.length}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  renderStep()
+                )
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 bg-gradient-to-b from-background to-slate-50/40">
-          {renderStep()}
-        </div>
-
-        <div className="shrink-0 flex justify-between px-6 py-4 border-t bg-background/95">
+        <div className="shrink-0 flex justify-between px-6 py-4 border-t bg-slate-100/95 md:px-8">
           <Button
-            variant="outline"
+            variant="default"
             onClick={handleBack}
-            disabled={currentStep === 0 || isSubmitting}
+            disabled={(currentStep === 0 && shouldShowModePicker) || isSubmitting}
+            className="h-11 px-5 text-base bg-slate-700 text-white hover:bg-slate-800"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
 
-          {currentStep === STEPS.length - 1 ? (
+          {shouldShowModePicker ? (
+            <Button
+              onClick={() => {
+                if (!wizardData.creationMode) return;
+                setShowModePicker(false);
+                setCurrentStep(0);
+              }}
+              disabled={!wizardData.creationMode}
+              className="h-11 px-6 text-base"
+            >
+              Continue
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          ) : currentStep === STEPS.length - 1 ? (
             <Button
               onClick={handleSubmit}
               disabled={!canProceed() || isSubmitting}
+              className="cw-soft-pulse h-11 px-6 text-base"
             >
               {isSubmitting
                 ? wizardData.campaignId
@@ -294,8 +648,17 @@ export function CampaignWizard({
                   : "Create Campaign"}
             </Button>
           ) : (
-            <Button onClick={handleNext} disabled={!canProceed()}>
-              Next
+            <Button
+              onClick={handleNext}
+              className="cw-soft-pulse h-11 px-6 text-base"
+            >
+              {isQuickStart && currentStep === 0
+                ? "Continue to questions"
+                : isTemplateStory && currentStep === 0
+                  ? "Continue to templates"
+                  : isConversationBuilder && currentStep === 0
+                    ? "Continue to conversation"
+                : nextLabels[currentStep] || "Next"}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           )}

@@ -14,6 +14,70 @@ export type Database = {
   };
   public: {
     Tables: {
+      admin_notifications: {
+        Row: {
+          campaign_id: string | null;
+          company_id: string | null;
+          created_at: string;
+          id: string;
+          message: string;
+          metadata: Json;
+          notification_type: string;
+          read_at: string | null;
+          response_id: string | null;
+          title: string;
+          user_id: string;
+        };
+        Insert: {
+          campaign_id?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          id?: string;
+          message: string;
+          metadata?: Json;
+          notification_type?: string;
+          read_at?: string | null;
+          response_id?: string | null;
+          title: string;
+          user_id: string;
+        };
+        Update: {
+          campaign_id?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          id?: string;
+          message?: string;
+          metadata?: Json;
+          notification_type?: string;
+          read_at?: string | null;
+          response_id?: string | null;
+          title?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "admin_notifications_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "admin_notifications_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "admin_notifications_response_id_fkey";
+            columns: ["response_id"];
+            isOneToOne: false;
+            referencedRelation: "feedback_responses";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       campaigns: {
         Row: {
           campaign_type: string | null;
@@ -237,30 +301,42 @@ export type Database = {
       };
       user_settings: {
         Row: {
+          color_theme: string;
           compact_view: boolean;
           created_at: string;
+          default_creation_mode: string;
+          dark_mode_enabled: boolean;
           email_notifications: boolean;
           id: string;
+          in_app_campaign_notifications: boolean;
           show_response_timestamps: boolean;
           updated_at: string;
           user_id: string;
           weekly_summary: boolean;
         };
         Insert: {
+          color_theme?: string;
           compact_view?: boolean;
           created_at?: string;
+          default_creation_mode?: string;
+          dark_mode_enabled?: boolean;
           email_notifications?: boolean;
           id?: string;
+          in_app_campaign_notifications?: boolean;
           show_response_timestamps?: boolean;
           updated_at?: string;
           user_id: string;
           weekly_summary?: boolean;
         };
         Update: {
+          color_theme?: string;
           compact_view?: boolean;
           created_at?: string;
+          default_creation_mode?: string;
+          dark_mode_enabled?: boolean;
           email_notifications?: boolean;
           id?: string;
+          in_app_campaign_notifications?: boolean;
           show_response_timestamps?: boolean;
           updated_at?: string;
           user_id?: string;

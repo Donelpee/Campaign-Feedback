@@ -11,7 +11,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -51,9 +50,6 @@ import {
   Percent,
   Activity,
   Clock3,
-  Bell,
-  UserCircle2,
-  CalendarDays,
   LayoutDashboard,
   FilterX,
   MessageSquareText,
@@ -135,7 +131,6 @@ interface RawResponseRow {
 type CampaignWithCompany = Campaign & { companyName?: string };
 
 interface ViewerSettings {
-  emailNotifications: boolean;
   compactView: boolean;
   showResponseTimestamps: boolean;
 }
@@ -300,7 +295,6 @@ export function ResponsesViewer() {
   const [campaignSearch, setCampaignSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [viewerSettings, setViewerSettings] = useState<ViewerSettings>({
-    emailNotifications: true,
     compactView: false,
     showResponseTimestamps: true,
   });
@@ -310,7 +304,7 @@ export function ResponsesViewer() {
 
     const { data, error } = await supabase
       .from("user_settings")
-      .select("email_notifications, compact_view, show_response_timestamps")
+      .select("compact_view, show_response_timestamps")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -321,7 +315,6 @@ export function ResponsesViewer() {
 
     if (data) {
       setViewerSettings({
-        emailNotifications: data.email_notifications,
         compactView: data.compact_view,
         showResponseTimestamps: data.show_response_timestamps,
       });
@@ -404,17 +397,7 @@ export function ResponsesViewer() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "feedback_responses" },
-        (payload) => {
-          if (
-            payload.eventType === "INSERT" &&
-            viewerSettings.emailNotifications
-          ) {
-            toast({
-              title: "New response received",
-              description: "A new feedback submission just came in.",
-            });
-          }
-
+        () => {
           loadData();
         },
       )
@@ -423,7 +406,7 @@ export function ResponsesViewer() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadData, toast, viewerSettings.emailNotifications]);
+  }, [loadData]);
 
   // Reset campaign filter when company changes
   useEffect(() => {
@@ -1414,18 +1397,7 @@ export function ResponsesViewer() {
         <div className="flex items-center gap-2">
           <SidebarTrigger className="-ml-1" />
         </div>
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <div className="hidden md:flex items-center gap-2">
-            <CalendarDays className="h-4 w-4" />
-            <span>{new Date().toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}</span>
-          </div>
-          <Separator orientation="vertical" className="h-4" />
-          <Bell className="h-5 w-5" />
-          <div className="flex items-center gap-2 font-medium text-foreground">
-            <UserCircle2 className="h-5 w-5" />
-            <span>System Administrator</span>
-          </div>
-        </div>
+        <div />
       </header>
 
       {/* Content */}

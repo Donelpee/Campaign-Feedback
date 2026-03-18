@@ -16,6 +16,12 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Save, KeyRound, Bell, Palette } from "lucide-react";
 
+type CreationMode =
+  | "guided_buddy"
+  | "quick_start"
+  | "template_story"
+  | "conversation_builder";
+
 export function SettingsManager() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -24,10 +30,16 @@ export function SettingsManager() {
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [inAppCampaignNotifications, setInAppCampaignNotifications] =
+    useState(true);
+  const [darkModeEnabled, setDarkModeEnabled] = useState(false);
+  const [colorTheme, setColorTheme] = useState<"ocean" | "meadow">("ocean");
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [weeklySummary, setWeeklySummary] = useState(false);
   const [compactView, setCompactView] = useState(false);
   const [showResponseTimestamps, setShowResponseTimestamps] = useState(true);
+  const [defaultCreationMode, setDefaultCreationMode] =
+    useState<CreationMode>("guided_buddy");
 
   const loadSettings = useCallback(async () => {
     if (!user?.id) {
@@ -39,19 +51,23 @@ export function SettingsManager() {
     try {
       const { data, error } = await supabase
         .from("user_settings")
-        .select(
-          "email_notifications, weekly_summary, compact_view, show_response_timestamps",
-        )
+        .select("*")
         .eq("user_id", user.id)
         .maybeSingle();
 
       if (error) throw error;
 
       if (data) {
+        setInAppCampaignNotifications(data.in_app_campaign_notifications ?? true);
+        setDarkModeEnabled(data.dark_mode_enabled ?? false);
+        setColorTheme((data.color_theme as "ocean" | "meadow") || "ocean");
         setEmailNotifications(data.email_notifications);
         setWeeklySummary(data.weekly_summary);
         setCompactView(data.compact_view);
         setShowResponseTimestamps(data.show_response_timestamps);
+        setDefaultCreationMode(
+          (data.default_creation_mode as CreationMode) || "guided_buddy",
+        );
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -77,10 +93,14 @@ export function SettingsManager() {
       const { error } = await supabase.from("user_settings").upsert(
         {
           user_id: user.id,
+          in_app_campaign_notifications: inAppCampaignNotifications,
+          dark_mode_enabled: darkModeEnabled,
+          color_theme: colorTheme,
           email_notifications: emailNotifications,
           weekly_summary: weeklySummary,
           compact_view: compactView,
           show_response_timestamps: showResponseTimestamps,
+          default_creation_mode: defaultCreationMode,
         },
         { onConflict: "user_id" },
       );
@@ -132,10 +152,10 @@ export function SettingsManager() {
 
   return (
     <div className="mx-auto w-full max-w-[1100px] p-6 md:p-8 space-y-6">
-      <div>
+      <div className="easy-form-shell">
         <h1 className="text-3xl font-bold text-foreground">Settings</h1>
         <p className="text-muted-foreground mt-1">
-          Manage your account and application preferences
+          Manage your account and preferences in one simple place.
         </p>
       </div>
 
@@ -164,7 +184,7 @@ export function SettingsManager() {
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="********"
                 />
               </div>
               <div className="space-y-2">
@@ -173,7 +193,7 @@ export function SettingsManager() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
+                  placeholder="********"
                 />
               </div>
             </div>
@@ -203,7 +223,21 @@ export function SettingsManager() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="easy-field-row">
+            <div>
+              <p className="text-sm font-medium">In-app response alerts</p>
+              <p className="text-xs text-muted-foreground">
+                Show an admin alert when a campaign form is submitted
+              </p>
+            </div>
+            <Switch
+              checked={inAppCampaignNotifications}
+              onCheckedChange={setInAppCampaignNotifications}
+              disabled={isLoadingSettings || isSavingSettings}
+            />
+          </div>
+          <Separator />
+          <div className="easy-field-row">
             <div>
               <p className="text-sm font-medium">Email notifications</p>
               <p className="text-xs text-muted-foreground">
@@ -217,7 +251,7 @@ export function SettingsManager() {
             />
           </div>
           <Separator />
-          <div className="flex items-center justify-between">
+          <div className="easy-field-row">
             <div>
               <p className="text-sm font-medium">Weekly summary</p>
               <p className="text-xs text-muted-foreground">
@@ -242,7 +276,105 @@ export function SettingsManager() {
           <CardDescription>Application display settings</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="easy-field-row">
+            <div>
+              <p className="text-sm font-medium">Dark mode</p>
+              <p className="text-xs text-muted-foreground">
+                Softer low-light experience with accessible contrast
+              </p>
+            </div>
+            <Switch
+              checked={darkModeEnabled}
+              onCheckedChange={setDarkModeEnabled}
+              disabled={isLoadingSettings || isSavingSettings}
+            />
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Color theme</p>
+            <p className="text-xs text-muted-foreground">
+              Choose the color palette that feels most comfortable.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant={colorTheme === "ocean" ? "default" : "outline"}
+                onClick={() => setColorTheme("ocean")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Ocean Calm
+              </Button>
+              <Button
+                type="button"
+                variant={colorTheme === "meadow" ? "default" : "outline"}
+                onClick={() => setColorTheme("meadow")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Meadow Soft
+              </Button>
+            </div>
+          </div>
+          <Separator />
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Default campaign creation mode</p>
+            <p className="text-xs text-muted-foreground">
+              New campaigns will open with this mode automatically.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                type="button"
+                variant={
+                  defaultCreationMode === "guided_buddy" ? "default" : "outline"
+                }
+                onClick={() => setDefaultCreationMode("guided_buddy")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Guided Buddy
+              </Button>
+              <Button
+                type="button"
+                variant={
+                  defaultCreationMode === "quick_start" ? "default" : "outline"
+                }
+                onClick={() => setDefaultCreationMode("quick_start")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Quick Start
+              </Button>
+              <Button
+                type="button"
+                variant={
+                  defaultCreationMode === "template_story"
+                    ? "default"
+                    : "outline"
+                }
+                onClick={() => setDefaultCreationMode("template_story")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Template Story
+              </Button>
+              <Button
+                type="button"
+                variant={
+                  defaultCreationMode === "conversation_builder"
+                    ? "default"
+                    : "outline"
+                }
+                onClick={() => setDefaultCreationMode("conversation_builder")}
+                disabled={isLoadingSettings || isSavingSettings}
+                className="justify-start"
+              >
+                Conversation Builder
+              </Button>
+            </div>
+          </div>
+          <Separator />
+          <div className="easy-field-row">
             <div>
               <p className="text-sm font-medium">Compact view</p>
               <p className="text-xs text-muted-foreground">
@@ -256,7 +388,7 @@ export function SettingsManager() {
             />
           </div>
           <Separator />
-          <div className="flex items-center justify-between">
+          <div className="easy-field-row">
             <div>
               <p className="text-sm font-medium">Show response timestamps</p>
               <p className="text-xs text-muted-foreground">
