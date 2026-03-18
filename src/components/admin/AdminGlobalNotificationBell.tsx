@@ -22,9 +22,9 @@ export function AdminGlobalNotificationBell() {
   } = useAdminNotifications({ enableToasts: true });
 
   return (
-    <div className="fixed right-6 top-4 z-50">
-      <div className="admin-global-bell flex items-center gap-4 rounded-2xl border border-slate-200/90 bg-white/95 px-4 py-2 text-sm text-slate-600 shadow-[0_8px_26px_rgba(15,23,42,0.07)] backdrop-blur">
-        <div className="hidden md:flex items-center gap-2">
+    <div className="fixed right-2 top-2 z-50 sm:right-4 sm:top-3 md:right-6 md:top-4">
+      <div className="admin-global-bell flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white/95 px-2 py-1.5 text-sm text-slate-600 shadow-[0_8px_26px_rgba(15,23,42,0.07)] backdrop-blur sm:gap-3 sm:px-3 sm:py-2 md:gap-4 md:rounded-2xl md:px-4">
+        <div className="hidden lg:flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-slate-500" />
           <span>
             {new Date().toLocaleDateString(undefined, {
@@ -35,7 +35,7 @@ export function AdminGlobalNotificationBell() {
             })}
           </span>
         </div>
-        <Separator orientation="vertical" className="h-4" />
+        <Separator orientation="vertical" className="hidden h-4 lg:block" />
 
         <Popover open={isOpen} onOpenChange={setIsOpen}>
           <PopoverTrigger asChild>
@@ -125,7 +125,7 @@ export function AdminGlobalNotificationBell() {
           </PopoverContent>
         </Popover>
 
-        <div className="flex items-center gap-2 font-medium text-slate-800">
+        <div className="hidden items-center gap-2 font-medium text-slate-800 md:flex">
           <UserCircle2 className="h-5 w-5 text-slate-600" />
           <span>System Administrator</span>
         </div>

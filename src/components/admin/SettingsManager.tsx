@@ -151,9 +151,9 @@ export function SettingsManager() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] p-6 md:p-8 space-y-6">
+    <div className="mx-auto w-full max-w-[1100px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="easy-form-shell">
-        <h1 className="text-3xl font-bold text-foreground">Settings</h1>
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Settings</h1>
         <p className="text-muted-foreground mt-1">
           Manage your account and preferences in one simple place.
         </p>
@@ -404,8 +404,9 @@ export function SettingsManager() {
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
+      <div className="flex justify-stretch sm:justify-end">
         <Button
+          className="w-full sm:w-auto"
           onClick={saveSettings}
           disabled={isSavingSettings || isLoadingSettings || !user?.id}
         >

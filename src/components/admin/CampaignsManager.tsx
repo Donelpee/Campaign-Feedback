@@ -578,9 +578,9 @@ export function CampaignsManager({
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1400px]">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Feedback Campaigns</CardTitle>
               <CardDescription>
@@ -588,6 +588,7 @@ export function CampaignsManager({
               </CardDescription>
             </div>
             <Button
+              className="w-full sm:w-auto"
               onClick={() => {
                 if (hasSavedWizardDraft()) {
                   setShowDraftDecision(true);
@@ -614,6 +615,7 @@ export function CampaignsManager({
                 </p>
               </div>
             ) : (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -712,6 +714,7 @@ export function CampaignsManager({
                   })}
                 </TableBody>
               </Table>
+              </div>
             )}
           </CardContent>
         </Card>

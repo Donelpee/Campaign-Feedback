@@ -566,9 +566,9 @@ export function LinksManager() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1400px]">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>URL Generation</CardTitle>
               <CardDescription>
@@ -577,7 +577,7 @@ export function LinksManager() {
             </div>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
-                <Button disabled={availableCampaigns.length === 0}>
+                <Button className="w-full sm:w-auto" disabled={availableCampaigns.length === 0}>
                   <Plus className="mr-2 h-4 w-4" />
                   Generate Link
                 </Button>
@@ -683,6 +683,7 @@ export function LinksManager() {
                 </p>
               </div>
             ) : (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -804,6 +805,7 @@ export function LinksManager() {
                   })}
                 </TableBody>
               </Table>
+              </div>
             )}
           </CardContent>
         </Card>
@@ -927,7 +929,7 @@ export function LinksManager() {
             </div>
           </div>
 
-          <DialogFooter className="flex flex-wrap gap-2 sm:justify-between">
+          <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">
             <Button
               variant="outline"
               onClick={() => {
@@ -938,7 +940,7 @@ export function LinksManager() {
               <RefreshCw className="mr-2 h-4 w-4" />
               Refresh
             </Button>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center">
               <Button
                 variant="outline"
                 onClick={handleSaveDistribution}

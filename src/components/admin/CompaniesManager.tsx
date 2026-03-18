@@ -202,9 +202,9 @@ export function CompaniesManager() {
       </header>
 
       {/* Content */}
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1400px]">
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Client Companies</CardTitle>
               <CardDescription>
@@ -213,7 +213,7 @@ export function CompaniesManager() {
             </div>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button className="w-full sm:w-auto" onClick={() => handleOpenDialog()}>
                   <Plus className="mr-2 h-4 w-4" />
                   Add Company
                 </Button>
@@ -302,6 +302,7 @@ export function CompaniesManager() {
                 </p>
               </div>
             ) : (
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -357,6 +358,7 @@ export function CompaniesManager() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
             )}
           </CardContent>
         </Card>

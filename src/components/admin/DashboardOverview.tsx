@@ -1101,6 +1101,7 @@ export function DashboardOverview() {
               {campaignPerformanceRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No campaign performance data yet.</p>
               ) : (
+                <div className="overflow-x-auto">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -1133,6 +1134,7 @@ export function DashboardOverview() {
                     ))}
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>

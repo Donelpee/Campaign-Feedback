@@ -42,7 +42,7 @@ export function NotificationsManager() {
         <h1 className="font-semibold text-lg">Notification Center</h1>
       </header>
 
-      <main className="flex-1 overflow-auto p-6 md:p-8">
+      <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-8">
         <Card className="mx-auto w-full max-w-[1100px]">
           <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
@@ -55,7 +55,7 @@ export function NotificationsManager() {
                 logout.
               </CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 variant={filter === "all" ? "default" : "outline"}
                 size="sm"
@@ -91,7 +91,7 @@ export function NotificationsManager() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="easy-form-shell mb-4 flex items-center justify-between gap-2">
+            <div className="easy-form-shell mb-4 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
               <p className="text-sm text-muted-foreground">
                 New responses appear here automatically.
               </p>

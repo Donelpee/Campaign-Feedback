@@ -177,10 +177,10 @@ export function AdminUsersManager() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] p-6 md:p-8 space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto w-full max-w-[1400px] space-y-6 p-3 sm:p-4 md:p-8">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground">Admin Users</h1>
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Admin Users</h1>
           <p className="text-muted-foreground mt-1">
             Manage administrator access, roles, and permissions
           </p>
@@ -188,7 +188,7 @@ export function AdminUsersManager() {
         {isSuperAdmin && (
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
-              <Button>
+              <Button className="w-full sm:w-auto">
                 <UserPlus className="mr-2 h-4 w-4" /> Add Admin
               </Button>
             </DialogTrigger>
@@ -258,6 +258,7 @@ export function AdminUsersManager() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -347,6 +348,7 @@ export function AdminUsersManager() {
                 )}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
