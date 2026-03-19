@@ -66,9 +66,7 @@ export function SettingsManager() {
         setWeeklySummary(data.weekly_summary);
         setCompactView(data.compact_view);
         setShowResponseTimestamps(data.show_response_timestamps);
-        setDefaultCreationMode(
-          (data.default_creation_mode as CreationMode) || "guided_buddy",
-        );
+        setDefaultCreationMode("guided_buddy");
       }
     } catch (error) {
       console.error("Error loading settings:", error);
@@ -344,40 +342,27 @@ export function SettingsManager() {
               </Button>
               <Button
                 type="button"
-                variant={
-                  defaultCreationMode === "quick_start" ? "default" : "outline"
-                }
-                onClick={() => setDefaultCreationMode("quick_start")}
-                disabled={isLoadingSettings || isSavingSettings}
+                variant="outline"
+                disabled
                 className="justify-start"
               >
-                Quick Start
+                Quick Start (Coming Soon)
               </Button>
               <Button
                 type="button"
-                variant={
-                  defaultCreationMode === "template_story"
-                    ? "default"
-                    : "outline"
-                }
-                onClick={() => setDefaultCreationMode("template_story")}
-                disabled={isLoadingSettings || isSavingSettings}
+                variant="outline"
+                disabled
                 className="justify-start"
               >
-                Template Story
+                Template Story (Coming Soon)
               </Button>
               <Button
                 type="button"
-                variant={
-                  defaultCreationMode === "conversation_builder"
-                    ? "default"
-                    : "outline"
-                }
-                onClick={() => setDefaultCreationMode("conversation_builder")}
-                disabled={isLoadingSettings || isSavingSettings}
+                variant="outline"
+                disabled
                 className="justify-start"
               >
-                Conversation Builder
+                Conversation Builder (Coming Soon)
               </Button>
             </div>
           </div>

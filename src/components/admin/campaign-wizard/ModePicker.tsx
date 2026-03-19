@@ -13,7 +13,7 @@ export function ModePicker({ selectedMode, onModeSelect }: ModePickerProps) {
       <div className="cw-soft-panel p-5 md:p-6">
         <p className="text-xl font-semibold text-slate-900">Choose your creation style</p>
         <p className="mt-2 text-base text-slate-600">
-          Pick one flow. Each style uses a different page and interaction model.
+          Guided Buddy is currently available. Other creation styles will be released soon.
         </p>
       </div>
 
@@ -30,6 +30,8 @@ export function ModePicker({ selectedMode, onModeSelect }: ModePickerProps) {
           subtitle="Lean setup, starter questions, minimal editing controls."
           icon={Zap}
           selected={selectedMode === "quick_start"}
+          disabled
+          comingSoon
           onSelect={() => onModeSelect("quick_start")}
         />
         <ModeCard
@@ -37,6 +39,8 @@ export function ModePicker({ selectedMode, onModeSelect }: ModePickerProps) {
           subtitle="Pick a campaign template flow and customize each question."
           icon={BookTemplate}
           selected={selectedMode === "template_story"}
+          disabled
+          comingSoon
           onSelect={() => onModeSelect("template_story")}
         />
         <ModeCard
@@ -44,6 +48,8 @@ export function ModePicker({ selectedMode, onModeSelect }: ModePickerProps) {
           subtitle="Build question-by-question as a guided conversation script."
           icon={MessagesSquare}
           selected={selectedMode === "conversation_builder"}
+          disabled
+          comingSoon
           onSelect={() => onModeSelect("conversation_builder")}
         />
       </div>

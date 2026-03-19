@@ -77,6 +77,11 @@ const EMPTY_WIZARD_DATA: WizardData = {
   documentContent: "",
 };
 
+function coerceCreationMode(mode?: CreationMode): CreationMode | undefined {
+  if (!mode) return undefined;
+  return mode === "guided_buddy" ? "guided_buddy" : "guided_buddy";
+}
+
 function mapLegacyBuildMode(value: unknown): CreationMode | undefined {
   if (value === "manual") return "guided_buddy";
   if (value === "ai") return "conversation_builder";
@@ -97,7 +102,7 @@ function normalizeDraftData(data: unknown): WizardData {
   return {
     ...EMPTY_WIZARD_DATA,
     ...incoming,
-    creationMode: normalizedMode,
+    creationMode: coerceCreationMode(normalizedMode),
   };
 }
 
@@ -181,7 +186,7 @@ export function CampaignWizard({
       } else {
         setWizardData({
           ...EMPTY_WIZARD_DATA,
-          creationMode: defaultCreationMode || undefined,
+          creationMode: coerceCreationMode(defaultCreationMode || undefined),
         });
         setCurrentStep(0);
         setShowModePicker(!defaultCreationMode);
@@ -561,6 +566,7 @@ export function CampaignWizard({
               <ModePicker
                 selectedMode={wizardData.creationMode}
                 onModeSelect={(mode) => {
+                  if (mode !== "guided_buddy") return;
                   updateWizardData({ creationMode: mode });
                   onDefaultCreationModeChange?.(mode);
                   setShowModePicker(false);

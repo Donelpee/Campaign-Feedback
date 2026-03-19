@@ -88,23 +88,6 @@ const campaignTypeLabels: Record<string, string> = {
   event_evaluation: "Event Evaluation",
 };
 
-function generateUniqueCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
-  let code = "";
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-function isCampaignActiveNow(startDate: string, endDate: string): boolean {
-  const now = new Date();
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  end.setHours(23, 59, 59, 999);
-  return now >= start && now <= end;
-}
-
 export function CampaignsManager({
   isWizardOpen,
   setIsWizardOpen,
@@ -128,14 +111,14 @@ export function CampaignsManager({
   const [showDraftDecision, setShowDraftDecision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [defaultCreationMode, setDefaultCreationMode] =
-    useState<CreationMode>("guided_buddy");
+    useState<CreationMode | null>(null);
 
   const loadDefaultCreationMode = useCallback(async () => {
     if (bypassAuth) {
       const local = window.localStorage.getItem(
         DEFAULT_CREATION_MODE_KEY,
       ) as CreationMode | null;
-      setDefaultCreationMode(local || "guided_buddy");
+      setDefaultCreationMode(local || null);
       return;
     }
 
@@ -149,11 +132,11 @@ export function CampaignsManager({
         .maybeSingle();
       if (error) throw error;
       setDefaultCreationMode(
-        (data?.default_creation_mode as CreationMode) || "guided_buddy",
+        (data?.default_creation_mode as CreationMode) || null,
       );
     } catch (error) {
       console.error("Error loading default creation mode:", error);
-      setDefaultCreationMode("guided_buddy");
+      setDefaultCreationMode(null);
     }
   }, [bypassAuth, user?.id]);
 
@@ -412,7 +395,7 @@ export function CampaignsManager({
         throw new Error("A campaign with this exact name already exists.");
       }
 
-      const { data: createdCampaign, error: campaignError } = await supabase
+      const { error: campaignError } = await supabase
         .from("campaigns")
         .insert([
           {
@@ -423,51 +406,14 @@ export function CampaignsManager({
             start_date: data.startDate,
             end_date: data.endDate,
           },
-        ])
-        .select("id")
-        .single();
+        ]);
 
       if (campaignError) throw campaignError;
 
-      let linkCreated = false;
-      if (isCampaignActiveNow(data.startDate, data.endDate)) {
-        for (let attempt = 0; attempt < 5 && !linkCreated; attempt++) {
-          const uniqueCode = generateUniqueCode();
-          const { error: linkError } = await supabase
-            .from("company_campaign_links")
-            .insert([
-              {
-                company_id: data.selectedCompanyId,
-                campaign_id: createdCampaign.id,
-                unique_code: uniqueCode,
-              },
-            ]);
-
-          if (!linkError) {
-            linkCreated = true;
-            break;
-          }
-
-          if (linkError.code !== "23505") {
-            throw linkError;
-          }
-        }
-
-        if (!linkCreated) {
-          await supabase.from("campaigns").delete().eq("id", createdCampaign.id);
-          throw new Error(
-            "Unable to create a unique access link for this active campaign.",
-          );
-        }
-      }
-
       toast({
         title: "Success",
-        description: linkCreated
-          ? data.selectedCompanyName
-            ? `Campaign created and linked to ${data.selectedCompanyName}.`
-            : "Campaign created and linked to selected company."
-          : "Campaign created successfully. Link can be generated once the campaign becomes active.",
+        description:
+          "Campaign created successfully. Generate a link from the Links page.",
       });
 
       setIsWizardOpen(false);
