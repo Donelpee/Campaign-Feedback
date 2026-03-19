@@ -189,11 +189,18 @@ export function EditUserDialog({
   const saveMutation = useMutation({
     mutationFn: async () => {
       // Update role if changed
-      if (role !== currentRole) {
+      if (roleId) {
+        if (role !== currentRole) {
+          const { error } = await supabase
+            .from("user_roles")
+            .update({ role })
+            .eq("id", roleId);
+          if (error) throw error;
+        }
+      } else {
         const { error } = await supabase
           .from("user_roles")
-          .update({ role })
-          .eq("id", roleId);
+          .insert({ user_id: userId, role });
         if (error) throw error;
       }
 

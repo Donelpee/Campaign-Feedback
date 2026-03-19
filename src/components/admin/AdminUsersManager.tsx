@@ -62,6 +62,8 @@ interface UserRoleRow {
   id: string;
   user_id: string;
   role: AppRole;
+  roleId?: string | null;
+  hasRole: boolean;
   created_at: string;
   profile?: {
     email: string;
@@ -259,28 +261,48 @@ export function AdminUsersManager() {
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      if (!roles || roles.length === 0) return [] as UserRoleRow[];
 
-      const userIds = roles.map((r) => r.user_id);
-      const [profilesRes, permsRes] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("user_id, email, full_name")
-          .in("user_id", userIds),
-        supabase
-          .from("user_module_permissions")
-          .select("user_id, module_key")
-          .in("user_id", userIds),
-      ]);
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("user_id, email, full_name, created_at")
+        .order("created_at", { ascending: false });
+      if (profilesError) throw profilesError;
+      if (!profiles || profiles.length === 0) return [] as UserRoleRow[];
+
+      const userIds = profiles.map((p) => p.user_id);
+      const permsRes = await supabase
+        .from("user_module_permissions")
+        .select("user_id, module_key")
+        .in("user_id", userIds);
+
+      const profilesRes = { data: profiles, error: null as null };
       if (profilesRes.error) throw profilesRes.error;
       if (permsRes.error) throw permsRes.error;
 
-      return roles.map((role) => ({
-        ...role,
-        profile: profilesRes.data?.find((p) => p.user_id === role.user_id),
-        permissionCount:
-          permsRes.data?.filter((p) => p.user_id === role.user_id).length || 0,
-      })) as UserRoleRow[];
+      const pickRole = (userId: string) => {
+        const userRoles = (roles || []).filter((r) => r.user_id === userId);
+        if (userRoles.length === 0) return null;
+        return (
+          userRoles.find((r) => r.role === "super_admin") ||
+          userRoles.find((r) => r.role === "admin") ||
+          userRoles[0]
+        );
+      };
+
+      return profiles.map((profile) => {
+        const matchedRole = pickRole(profile.user_id);
+        return {
+          id: matchedRole?.id || `profile-${profile.user_id}`,
+          roleId: matchedRole?.id || null,
+          user_id: profile.user_id,
+          role: matchedRole?.role || "no_role",
+          hasRole: Boolean(matchedRole),
+          created_at: matchedRole?.created_at || profile.created_at,
+          profile,
+          permissionCount:
+            permsRes.data?.filter((p) => p.user_id === profile.user_id).length || 0,
+        };
+      }) as UserRoleRow[];
     },
   });
 
@@ -309,7 +331,14 @@ export function AdminUsersManager() {
         throw new Error("Only Super Admin can assign Super Admin role.");
       }
 
-      if (method === "credentials") {
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("user_id")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      if (method === "credentials" && !profile) {
         if (!normalizedUsername || String(password || "").trim().length < 6) {
           throw new Error("Username and password (min 6 characters) are required.");
         }
@@ -324,13 +353,6 @@ export function AdminUsersManager() {
         return { invited: false as const, created: true as const };
       }
 
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("user_id")
-        .eq("email", normalizedEmail)
-        .maybeSingle();
-
-      if (profileError) throw profileError;
       if (!profile) {
         await invokeFunction("invite-admin-user", {
           email: normalizedEmail,
@@ -452,11 +474,13 @@ export function AdminUsersManager() {
         .from("user_company_permissions")
         .delete()
         .eq("user_id", userId);
-      const { error } = await supabase
-        .from("user_roles")
-        .delete()
-        .eq("id", roleId);
-      if (error) throw error;
+      if (roleId) {
+        const { error } = await supabase
+          .from("user_roles")
+          .delete()
+          .eq("id", roleId);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
@@ -837,17 +861,25 @@ export function AdminUsersManager() {
                     <TableCell>
                       <Badge
                         variant={
-                          ur.role === "super_admin" ? "default" : "secondary"
+                          ur.role === "super_admin"
+                            ? "default"
+                            : ur.role === "no_role"
+                              ? "outline"
+                              : "secondary"
                         }
                         className="gap-1"
                       >
                         {ur.role === "super_admin" ? (
                           <ShieldCheck className="h-3 w-3" />
+                        ) : ur.role === "no_role" ? (
+                          <Shield className="h-3 w-3" />
                         ) : (
                           <Shield className="h-3 w-3" />
                         )}
                         {ur.role === "super_admin"
                           ? "Super Admin"
+                          : ur.role === "no_role"
+                            ? "No Role Assigned"
                           : roleOptions.find((r) => r.role_key === ur.role)?.role_name ||
                             ur.role}
                       </Badge>
@@ -856,6 +888,10 @@ export function AdminUsersManager() {
                       {ur.role === "super_admin" ? (
                         <span className="text-xs text-muted-foreground">
                           All access
+                        </span>
+                      ) : ur.role === "no_role" ? (
+                        <span className="text-xs text-muted-foreground">
+                          Not assigned
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
@@ -882,13 +918,14 @@ export function AdminUsersManager() {
                             size="icon"
                             onClick={() =>
                               removeUserRole.mutate({
-                                roleId: ur.id,
+                                roleId: ur.roleId || "",
                                 userId: ur.user_id,
                               })
                             }
                             disabled={
                               removeUserRole.isPending ||
-                              (!isSuperAdmin && ur.role === "super_admin")
+                              (!isSuperAdmin && ur.role === "super_admin") ||
+                              !ur.hasRole
                             }
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
@@ -922,8 +959,8 @@ export function AdminUsersManager() {
             if (!open) setEditUser(null);
           }}
           userId={editUser.user_id}
-          currentRole={editUser.role}
-          roleId={editUser.id}
+          currentRole={editUser.role === "no_role" ? "admin" : editUser.role}
+          roleId={editUser.roleId || ""}
           canGrantSuperAdmin={isSuperAdmin}
           userName={
             editUser.profile?.full_name || editUser.profile?.email || "Unknown"
