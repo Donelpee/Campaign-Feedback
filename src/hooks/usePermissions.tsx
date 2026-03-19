@@ -9,7 +9,8 @@ export type AdminPermission =
   | "links"
   | "responses"
   | "users"
-  | "settings";
+  | "settings"
+  | string;
 
 export const ALL_PERMISSIONS: AdminPermission[] = [
   "overview",
@@ -21,13 +22,13 @@ export const ALL_PERMISSIONS: AdminPermission[] = [
   "settings",
 ];
 
-export const PERMISSION_LABELS: Record<AdminPermission, string> = {
+export const PERMISSION_LABELS: Record<string, string> = {
   overview: "Dashboard Overview",
   companies: "Companies",
   campaigns: "Campaigns",
   links: "Links",
   responses: "Responses",
-  users: "Admin Users",
+  users: "Admin/Users",
   settings: "Settings",
 };
 
@@ -66,15 +67,15 @@ export function usePermissions() {
       if (isSuperAdmin) return ALL_PERMISSIONS;
 
       const { data, error } = await supabase
-        .from("user_permissions")
-        .select("permission")
+        .from("user_module_permissions")
+        .select("module_key")
         .eq("user_id", user.id);
 
       if (error) {
         console.error("Error fetching permissions:", error);
         return [];
       }
-      return (data || []).map((d) => d.permission as AdminPermission);
+      return (data || []).map((d) => d.module_key as AdminPermission);
     },
     enabled: !!user?.id && !bypassAuth && (isAdminRole || isSuperAdmin),
   });

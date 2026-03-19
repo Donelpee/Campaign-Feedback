@@ -31,6 +31,7 @@ export function SettingsManager() {
   const [isLoadingSettings, setIsLoadingSettings] = useState(true);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [username, setUsername] = useState("");
   const [inAppCampaignNotifications, setInAppCampaignNotifications] =
     useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
@@ -50,22 +51,33 @@ export function SettingsManager() {
 
     setIsLoadingSettings(true);
     try {
-      const { data, error } = await supabase
-        .from("user_settings")
-        .select("*")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const [settingsRes, profileRes] = await Promise.all([
+        supabase
+          .from("user_settings")
+          .select("*")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("username")
+          .eq("user_id", user.id)
+          .maybeSingle(),
+      ]);
 
-      if (error) throw error;
+      if (settingsRes.error) throw settingsRes.error;
+      if (profileRes.error) throw profileRes.error;
+      setUsername(profileRes.data?.username || "");
 
-      if (data) {
-        setInAppCampaignNotifications(data.in_app_campaign_notifications ?? true);
-        setDarkModeEnabled(data.dark_mode_enabled ?? false);
-        setColorTheme((data.color_theme as "ocean" | "meadow") || "ocean");
-        setEmailNotifications(data.email_notifications);
-        setWeeklySummary(data.weekly_summary);
-        setCompactView(data.compact_view);
-        setShowResponseTimestamps(data.show_response_timestamps);
+      if (settingsRes.data) {
+        setInAppCampaignNotifications(
+          settingsRes.data.in_app_campaign_notifications ?? true,
+        );
+        setDarkModeEnabled(settingsRes.data.dark_mode_enabled ?? false);
+        setColorTheme((settingsRes.data.color_theme as "ocean" | "meadow") || "ocean");
+        setEmailNotifications(settingsRes.data.email_notifications);
+        setWeeklySummary(settingsRes.data.weekly_summary);
+        setCompactView(settingsRes.data.compact_view);
+        setShowResponseTimestamps(settingsRes.data.show_response_timestamps);
         setDefaultCreationMode("guided_buddy");
       }
     } catch (error) {
@@ -105,6 +117,15 @@ export function SettingsManager() {
       );
 
       if (error) throw error;
+
+      const normalizedUsername = username.trim();
+      if (normalizedUsername.length > 0) {
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ username: normalizedUsername })
+          .eq("user_id", user.id);
+        if (profileError) throw profileError;
+      }
 
       toast({ title: "Settings saved" });
     } catch (error) {
@@ -177,6 +198,15 @@ export function SettingsManager() {
           <div className="space-y-2">
             <Label>Email</Label>
             <Input value={user?.email || ""} disabled />
+          </div>
+          <div className="space-y-2">
+            <Label>Username</Label>
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="your.username"
+              disabled={isLoadingSettings || isSavingSettings}
+            />
           </div>
 
           <Separator />

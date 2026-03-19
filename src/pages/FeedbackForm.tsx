@@ -406,6 +406,15 @@ export default function FeedbackForm() {
 
       if (error) throw error;
 
+      // Fire-and-forget admin email alerts; do not block respondent success flow.
+      supabase.functions
+        .invoke("send-admin-response-emails", {
+          body: { code },
+        })
+        .catch((emailError) => {
+          console.error("Failed to send admin response emails:", emailError);
+        });
+
       setIsSubmitted(true);
     } catch (err) {
       console.error("Error submitting feedback:", err);

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -50,6 +51,12 @@ import {
 } from "lucide-react";
 import { EditUserDialog } from "./EditUserDialog";
 import type { AppRole } from "@/lib/supabase-types";
+import {
+  ALL_PERMISSIONS,
+  PERMISSION_LABELS,
+  type AdminPermission,
+} from "@/hooks/usePermissions";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface UserRoleRow {
   id: string;
@@ -63,14 +70,140 @@ interface UserRoleRow {
   permissionCount?: number;
 }
 
+interface CompanyOption {
+  id: string;
+  name: string;
+}
+
+interface ModuleOption {
+  module_key: string;
+  module_name: string;
+}
+
+interface RoleOption {
+  role_key: string;
+  role_name: string;
+  is_system: boolean;
+}
+
 export function AdminUsersManager() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { isSuperAdmin } = usePermissions();
+  const { user } = useAuth();
+  const { isSuperAdmin, hasPermission } = usePermissions();
+  const { data: currentUserRole } = useQuery({
+    queryKey: ["current-user-admin-role", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null as AppRole | null;
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .in("role", ["admin", "super_admin"])
+        .maybeSingle();
+      if (error) throw error;
+      return (data?.role as AppRole | undefined) || null;
+    },
+    enabled: Boolean(user?.id),
+  });
+  const canManageUsers = Boolean(currentUserRole) && hasPermission("users");
+  const [creationMethod, setCreationMethod] = useState<"invite" | "credentials">(
+    "invite",
+  );
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newEmail, setNewEmail] = useState("");
+  const [newUsername, setNewUsername] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [newRole, setNewRole] = useState<AppRole>("admin");
+  const [newPermissions, setNewPermissions] = useState<AdminPermission[]>([
+    "overview",
+    "campaigns",
+    "responses",
+  ]);
+  const [newCompanyIds, setNewCompanyIds] = useState<string[]>([]);
   const [editUser, setEditUser] = useState<UserRoleRow | null>(null);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [newModuleName, setNewModuleName] = useState("");
+
+  const toggleNewPermission = (permission: AdminPermission) => {
+    setNewPermissions((prev) =>
+      prev.includes(permission)
+        ? prev.filter((entry) => entry !== permission)
+        : [...prev, permission],
+    );
+  };
+
+  const toggleNewCompany = (companyId: string) => {
+    setNewCompanyIds((prev) =>
+      prev.includes(companyId)
+        ? prev.filter((entry) => entry !== companyId)
+        : [...prev, companyId],
+    );
+  };
+
+  const { data: companyOptions = [] } = useQuery({
+    queryKey: ["company-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("companies")
+        .select("id,name")
+        .order("name", { ascending: true });
+      if (error) throw error;
+      return (data || []) as CompanyOption[];
+    },
+    enabled: isAddOpen,
+  });
+
+  const { data: moduleOptions = [] } = useQuery({
+    queryKey: ["module-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("app_modules")
+        .select("module_key,module_name")
+        .order("module_name", { ascending: true });
+      if (error) throw error;
+      return (data || []) as ModuleOption[];
+    },
+    enabled: canManageUsers,
+  });
+
+  const { data: roleOptions = [] } = useQuery({
+    queryKey: ["role-options"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("app_roles")
+        .select("role_key,role_name,is_system")
+        .order("role_name", { ascending: true });
+      if (error) throw error;
+      return (data || []) as RoleOption[];
+    },
+    enabled: canManageUsers,
+  });
+
+  const { data: selectedRoleModules = [] } = useQuery({
+    queryKey: ["role-module-permissions", newRole],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("role_module_permissions")
+        .select("module_key")
+        .eq("role_key", newRole);
+      if (error) throw error;
+      return (data || []).map((row) => row.module_key as AdminPermission);
+    },
+    enabled: canManageUsers && Boolean(newRole),
+  });
+
+  useEffect(() => {
+    if (!newRole || newRole === "super_admin") return;
+    if (selectedRoleModules.length > 0) {
+      setNewPermissions(selectedRoleModules);
+    }
+  }, [newRole, selectedRoleModules]);
+
+  const requiresCompanySelection =
+    newRole !== "super_admin" &&
+    companyOptions.length > 0 &&
+    newCompanyIds.length === 0;
 
   const { data: adminUsers, isLoading } = useQuery({
     queryKey: ["admin-users"],
@@ -90,8 +223,8 @@ export function AdminUsersManager() {
           .select("user_id, email, full_name")
           .in("user_id", userIds),
         supabase
-          .from("user_permissions")
-          .select("user_id, permission")
+          .from("user_module_permissions")
+          .select("user_id, module_key")
           .in("user_id", userIds),
       ]);
       if (profilesRes.error) throw profilesRes.error;
@@ -107,8 +240,51 @@ export function AdminUsersManager() {
   });
 
   const addUserRole = useMutation({
-    mutationFn: async ({ email, role }: { email: string; role: AppRole }) => {
+    mutationFn: async ({
+      method,
+      email,
+      username,
+      password,
+      role,
+      permissions,
+      companyIds,
+    }: {
+      method: "invite" | "credentials";
+      email: string;
+      username?: string;
+      password?: string;
+      role: AppRole;
+      permissions: AdminPermission[];
+      companyIds: string[];
+    }) => {
       const normalizedEmail = email.trim().toLowerCase();
+      const normalizedUsername = String(username || "").trim();
+
+      if (role === "super_admin" && !isSuperAdmin) {
+        throw new Error("Only Super Admin can assign Super Admin role.");
+      }
+
+      if (method === "credentials") {
+        if (!normalizedUsername || String(password || "").trim().length < 6) {
+          throw new Error("Username and password (min 6 characters) are required.");
+        }
+        const { error: createError } = await supabase.functions.invoke(
+          "create-admin-user",
+          {
+            body: {
+              email: normalizedEmail,
+              username: normalizedUsername,
+              password,
+              role,
+              permissions,
+              companyIds,
+            },
+          },
+        );
+        if (createError) throw createError;
+        return { invited: false as const, created: true as const };
+      }
+
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("user_id")
@@ -117,47 +293,105 @@ export function AdminUsersManager() {
 
       if (profileError) throw profileError;
       if (!profile) {
-        const { error: inviteError } = await supabase.auth.signInWithOtp({
-          email: normalizedEmail,
-          options: {
-            shouldCreateUser: true,
-            emailRedirectTo: `${window.location.origin}/auth`,
+        const { error: inviteError } = await supabase.functions.invoke(
+          "invite-admin-user",
+          {
+            body: {
+              email: normalizedEmail,
+              role,
+              permissions,
+              companyIds,
+            },
           },
-        });
+        );
         if (inviteError) throw inviteError;
-        return { invited: true as const };
+        return { invited: true as const, created: false as const };
       }
 
-      const { data: existing } = await supabase
+      const { data: existingRoles, error: existingError } = await supabase
         .from("user_roles")
-        .select("id")
+        .select("id, role")
         .eq("user_id", profile.user_id)
-        .eq("role", role)
-        .maybeSingle();
+        .returns<Array<{ id: string; role: AppRole }>>();
+      if (existingError) throw existingError;
 
-      if (existing) throw new Error("User already has this role.");
+      if ((existingRoles || []).length > 0) {
+        if (!isSuperAdmin && existingRoles.some((entry) => entry.role === "super_admin")) {
+          throw new Error("Only Super Admin can modify Super Admin accounts.");
+        }
+        const { error: clearRolesError } = await supabase
+          .from("user_roles")
+          .delete()
+          .eq("user_id", profile.user_id);
+        if (clearRolesError) throw clearRolesError;
+      }
 
-      const { error } = await supabase
+      const { error: insertRoleError } = await supabase
         .from("user_roles")
         .insert({ user_id: profile.user_id, role });
+      if (insertRoleError) throw insertRoleError;
 
-      if (error) throw error;
-      return { invited: false as const };
+      const { error: clearPermsError } = await supabase
+        .from("user_module_permissions")
+        .delete()
+        .eq("user_id", profile.user_id);
+      if (clearPermsError) throw clearPermsError;
+
+      if (role !== "super_admin" && permissions.length > 0) {
+        const { error: insertPermsError } = await supabase
+          .from("user_module_permissions")
+          .insert(
+            permissions.map((permission) => ({
+              user_id: profile.user_id,
+              module_key: permission,
+            })),
+          );
+        if (insertPermsError) throw insertPermsError;
+      }
+
+      const { error: clearCompanyPermsError } = await supabase
+        .from("user_company_permissions")
+        .delete()
+        .eq("user_id", profile.user_id);
+      if (clearCompanyPermsError) throw clearCompanyPermsError;
+
+      if (role !== "super_admin" && companyIds.length > 0) {
+        const { error: insertCompanyPermsError } = await supabase
+          .from("user_company_permissions")
+          .insert(
+            companyIds.map((companyId) => ({
+              user_id: profile.user_id,
+              company_id: companyId,
+            })),
+          );
+        if (insertCompanyPermsError) throw insertCompanyPermsError;
+      }
+      return { invited: false as const, created: false as const };
     },
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       if (result.invited) {
         toast({
           title: "Invite sent",
           description:
-            "User account invite sent. Once they sign in, add role and permissions here.",
+            "User account invite sent with the selected role and permissions.",
+        });
+      } else if (result.created) {
+        toast({
+          title: "User created",
+          description: "Login credentials created and access assigned successfully.",
         });
       } else {
-        queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-        toast({ title: "Role added successfully" });
+        toast({ title: "Admin access updated successfully" });
       }
       setIsAddOpen(false);
+      setCreationMethod("invite");
       setNewEmail("");
+      setNewUsername("");
+      setNewPassword("");
       setNewRole("admin");
+      setNewPermissions(["overview", "campaigns", "responses"]);
+      setNewCompanyIds([]);
     },
     onError: (error: Error) => {
       toast({
@@ -177,7 +411,14 @@ export function AdminUsersManager() {
       userId: string;
     }) => {
       // Also remove permissions
-      await supabase.from("user_permissions").delete().eq("user_id", userId);
+      await supabase
+        .from("user_module_permissions")
+        .delete()
+        .eq("user_id", userId);
+      await supabase
+        .from("user_company_permissions")
+        .delete()
+        .eq("user_id", userId);
       const { error } = await supabase
         .from("user_roles")
         .delete()
@@ -197,38 +438,126 @@ export function AdminUsersManager() {
     },
   });
 
+  const createRole = useMutation({
+    mutationFn: async () => {
+      const roleKey = newRoleName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (!roleKey) throw new Error("Role name is required.");
+      const { error: roleError } = await supabase.from("app_roles").insert({
+        role_key: roleKey,
+        role_name: newRoleName.trim(),
+        is_system: false,
+      });
+      if (roleError) throw roleError;
+
+      if (newPermissions.length > 0) {
+        const { error: permsError } = await supabase
+          .from("role_module_permissions")
+          .insert(
+            newPermissions.map((moduleKey) => ({
+              role_key: roleKey,
+              module_key: moduleKey,
+            })),
+          );
+        if (permsError) throw permsError;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["role-options"] });
+      toast({ title: "Role created" });
+      setNewRoleName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createModule = useMutation({
+    mutationFn: async () => {
+      const moduleKey = newModuleName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+      if (!moduleKey) throw new Error("Module name is required.");
+      const { error } = await supabase.from("app_modules").insert({
+        module_key: moduleKey,
+        module_name: newModuleName.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["module-options"] });
+      toast({ title: "Module created" });
+      setNewModuleName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   return (
     <div className="flex h-full flex-col">
       <header className="glass-header sticky top-0 z-20 flex h-16 shrink-0 items-center gap-2 px-4">
         <SidebarTrigger className="-ml-1" />
         <Separator orientation="vertical" className="mr-2 h-4" />
-        <h1 className="font-semibold text-lg">Admin Users</h1>
+        <h1 className="font-semibold text-lg">Users</h1>
       </header>
 
       <main className="flex-1 overflow-y-auto overflow-x-hidden">
       <div className="mx-auto w-full max-w-[1400px] space-y-6 p-3 sm:p-4 md:p-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Admin Users</h2>
+          <h2 className="text-2xl font-bold text-foreground sm:text-3xl">Users</h2>
           <p className="text-muted-foreground mt-1">
-            Manage administrator access, roles, and permissions
+            Manage user access, roles, and permissions
           </p>
         </div>
-        {isSuperAdmin && (
+        {canManageUsers && (
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
               <Button className="w-full sm:w-auto">
-                <UserPlus className="mr-2 h-4 w-4" /> Add Admin
+                <UserPlus className="mr-2 h-4 w-4" /> Add Users
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add Admin User</DialogTitle>
+                <DialogTitle>Add User</DialogTitle>
                 <DialogDescription>
-                  Grant admin access to an existing user by their email address.
+                  Create a user with credentials or invite by email, then assign access.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label>Creation Method</Label>
+                  <Select
+                    value={creationMethod}
+                    onValueChange={(value) =>
+                      setCreationMethod(value as "invite" | "credentials")
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="invite">Invite by Email</SelectItem>
+                      <SelectItem value="credentials">
+                        Create Username + Password
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label>Email Address</Label>
                   <Input
@@ -237,6 +566,27 @@ export function AdminUsersManager() {
                     onChange={(e) => setNewEmail(e.target.value)}
                   />
                 </div>
+                {creationMethod === "credentials" && (
+                  <>
+                    <div className="space-y-2">
+                      <Label>Username</Label>
+                      <Input
+                        placeholder="jane.doe"
+                        value={newUsername}
+                        onChange={(e) => setNewUsername(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Temporary Password</Label>
+                      <Input
+                        type="password"
+                        placeholder="Minimum 6 characters"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                      />
+                    </div>
+                  </>
+                )}
                 <div className="space-y-2">
                   <Label>Role</Label>
                   <Select
@@ -247,11 +597,86 @@ export function AdminUsersManager() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="admin">Admin</SelectItem>
-                      <SelectItem value="super_admin">Super Admin</SelectItem>
+                      {(roleOptions.length > 0
+                        ? roleOptions
+                        : [
+                            { role_key: "admin", role_name: "Admin", is_system: true },
+                            {
+                              role_key: "super_admin",
+                              role_name: "Super Admin",
+                              is_system: true,
+                            },
+                          ]
+                      ).map((roleOption) => (
+                        <SelectItem
+                          key={roleOption.role_key}
+                          value={roleOption.role_key}
+                          disabled={
+                            roleOption.role_key === "super_admin" && !isSuperAdmin
+                          }
+                        >
+                          {roleOption.role_name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
+                {newRole !== "super_admin" && (
+                  <div className="space-y-2">
+                    <Label>Module Permissions</Label>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {(moduleOptions.length > 0
+                        ? moduleOptions.map((m) => m.module_key)
+                        : ALL_PERMISSIONS
+                      ).map((permission) => (
+                        <label
+                          key={permission}
+                          className="flex items-center gap-2 text-sm"
+                        >
+                          <Checkbox
+                            checked={newPermissions.includes(permission)}
+                            onCheckedChange={() => toggleNewPermission(permission)}
+                          />
+                          {moduleOptions.find((m) => m.module_key === permission)
+                            ?.module_name || PERMISSION_LABELS[permission] || permission}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {newRole !== "super_admin" && (
+                  <div className="space-y-2">
+                    <Label>Company Access</Label>
+                    <p className="text-xs text-muted-foreground">
+                      Choose companies this user can access.
+                    </p>
+                    {companyOptions.length > 0 && newCompanyIds.length === 0 && (
+                      <p className="text-xs text-amber-700">
+                        Select at least one company to continue.
+                      </p>
+                    )}
+                    <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+                      {companyOptions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
+                          No companies available yet.
+                        </p>
+                      ) : (
+                        companyOptions.map((company) => (
+                          <label
+                            key={company.id}
+                            className="flex items-center gap-2 text-sm"
+                          >
+                            <Checkbox
+                              checked={newCompanyIds.includes(company.id)}
+                              onCheckedChange={() => toggleNewCompany(company.id)}
+                            />
+                            {company.name}
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsAddOpen(false)}>
@@ -259,14 +684,35 @@ export function AdminUsersManager() {
                 </Button>
                 <Button
                   onClick={() =>
-                    addUserRole.mutate({ email: newEmail, role: newRole })
+                    addUserRole.mutate({
+                      method: creationMethod,
+                      email: newEmail,
+                      username: newUsername,
+                      password: newPassword,
+                      role: newRole,
+                      permissions:
+                        newRole === "super_admin"
+                          ? []
+                          : newPermissions,
+                      companyIds:
+                        newRole === "super_admin"
+                          ? []
+                          : newCompanyIds,
+                    })
                   }
-                  disabled={!newEmail || addUserRole.isPending}
+                  disabled={
+                    !newEmail ||
+                    addUserRole.isPending ||
+                    (creationMethod === "credentials" &&
+                      (!newUsername || newPassword.trim().length < 6)) ||
+                    (newRole !== "super_admin" && newPermissions.length === 0) ||
+                    requiresCompanySelection
+                  }
                 >
                   {addUserRole.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   )}
-                  Add Role
+                  Save User
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -274,11 +720,58 @@ export function AdminUsersManager() {
         )}
       </div>
 
+      {canManageUsers && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Role & Module Management</CardTitle>
+            <CardDescription>
+              Create roles and modules. New modules automatically appear in user permission lists.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3 rounded-lg border p-4">
+              <Label>Create Role</Label>
+              <Input
+                placeholder="Example: Regional Manager"
+                value={newRoleName}
+                onChange={(e) => setNewRoleName(e.target.value)}
+              />
+              <Button
+                onClick={() => createRole.mutate()}
+                disabled={!newRoleName.trim() || createRole.isPending}
+              >
+                {createRole.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Create Role
+              </Button>
+            </div>
+            <div className="space-y-3 rounded-lg border p-4">
+              <Label>Create Module</Label>
+              <Input
+                placeholder="Example: Billing Reports"
+                value={newModuleName}
+                onChange={(e) => setNewModuleName(e.target.value)}
+              />
+              <Button
+                onClick={() => createModule.mutate()}
+                disabled={!newModuleName.trim() || createModule.isPending}
+              >
+                {createModule.isPending && (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                )}
+                Create Module
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>Current Administrators</CardTitle>
+          <CardTitle>Current Users</CardTitle>
           <CardDescription>
-            Users with admin or super admin privileges
+            Users with admin access and role assignments
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -296,7 +789,7 @@ export function AdminUsersManager() {
                   <TableHead>Role</TableHead>
                   <TableHead>Permissions</TableHead>
                   <TableHead>Added</TableHead>
-                  {isSuperAdmin && (
+                  {canManageUsers && (
                     <TableHead className="w-[100px]">Actions</TableHead>
                   )}
                 </TableRow>
@@ -320,7 +813,10 @@ export function AdminUsersManager() {
                         ) : (
                           <Shield className="h-3 w-3" />
                         )}
-                        {ur.role === "super_admin" ? "Super Admin" : "Admin"}
+                        {ur.role === "super_admin"
+                          ? "Super Admin"
+                          : roleOptions.find((r) => r.role_key === ur.role)?.role_name ||
+                            ur.role}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -337,13 +833,14 @@ export function AdminUsersManager() {
                     <TableCell className="text-muted-foreground">
                       {new Date(ur.created_at).toLocaleDateString()}
                     </TableCell>
-                    {isSuperAdmin && (
+                    {canManageUsers && (
                       <TableCell>
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
                             size="icon"
                             onClick={() => setEditUser(ur)}
+                            disabled={!isSuperAdmin && ur.role === "super_admin"}
                           >
                             <Pencil className="h-4 w-4" />
                           </Button>
@@ -356,7 +853,10 @@ export function AdminUsersManager() {
                                 userId: ur.user_id,
                               })
                             }
-                            disabled={removeUserRole.isPending}
+                            disabled={
+                              removeUserRole.isPending ||
+                              (!isSuperAdmin && ur.role === "super_admin")
+                            }
                           >
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
@@ -368,7 +868,7 @@ export function AdminUsersManager() {
                 {adminUsers?.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={isSuperAdmin ? 6 : 5}
+                      colSpan={canManageUsers ? 6 : 5}
                       className="text-center text-muted-foreground py-8"
                     >
                       No admin users found
@@ -391,6 +891,7 @@ export function AdminUsersManager() {
           userId={editUser.user_id}
           currentRole={editUser.role}
           roleId={editUser.id}
+          canGrantSuperAdmin={isSuperAdmin}
           userName={
             editUser.profile?.full_name || editUser.profile?.email || "Unknown"
           }

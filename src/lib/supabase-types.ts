@@ -1,7 +1,7 @@
 // Type definitions for our Supabase tables
 // These extend the auto-generated types for better type safety
 
-export type AppRole = "admin" | "super_admin";
+export type AppRole = string;
 export type AdminPermission =
   | "overview"
   | "companies"
@@ -135,11 +135,26 @@ export interface UserRole {
   created_at: string;
 }
 
+export interface UserCampaignPermission {
+  id: string;
+  user_id: string;
+  campaign_id: string;
+  created_at: string;
+}
+
+export interface UserCompanyPermission {
+  id: string;
+  user_id: string;
+  company_id: string;
+  created_at: string;
+}
+
 export interface Profile {
   id: string;
   user_id: string;
   email: string;
   full_name: string | null;
+  username: string | null;
   created_at: string;
   updated_at: string;
 }

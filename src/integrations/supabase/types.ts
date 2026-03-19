@@ -78,6 +78,63 @@ export type Database = {
           },
         ];
       };
+      app_modules: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          id: string;
+          module_key: string;
+          module_name: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          module_key: string;
+          module_name: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          module_key?: string;
+          module_name?: string;
+        };
+        Relationships: [];
+      };
+      app_roles: {
+        Row: {
+          created_at: string;
+          created_by: string | null;
+          description: string | null;
+          id: string;
+          is_system: boolean;
+          role_key: string;
+          role_name: string;
+        };
+        Insert: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          is_system?: boolean;
+          role_key: string;
+          role_name: string;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string | null;
+          description?: string | null;
+          id?: string;
+          is_system?: boolean;
+          role_key?: string;
+          role_name?: string;
+        };
+        Relationships: [];
+      };
       campaigns: {
         Row: {
           campaign_type: string | null;
@@ -238,6 +295,7 @@ export type Database = {
           id: string;
           updated_at: string;
           user_id: string;
+          username: string | null;
         };
         Insert: {
           created_at?: string;
@@ -246,6 +304,7 @@ export type Database = {
           id?: string;
           updated_at?: string;
           user_id: string;
+          username?: string | null;
         };
         Update: {
           created_at?: string;
@@ -254,6 +313,70 @@ export type Database = {
           id?: string;
           updated_at?: string;
           user_id?: string;
+          username?: string | null;
+        };
+        Relationships: [];
+      };
+      onboarding_invites: {
+        Row: {
+          company_ids: string[];
+          created_at: string;
+          created_by: string | null;
+          expires_at: string;
+          id: string;
+          invite_email: string;
+          module_keys: string[];
+          role_key: string;
+          token_hash: string;
+          used_at: string | null;
+          username: string | null;
+        };
+        Insert: {
+          company_ids?: string[];
+          created_at?: string;
+          created_by?: string | null;
+          expires_at: string;
+          id?: string;
+          invite_email: string;
+          module_keys?: string[];
+          role_key: string;
+          token_hash: string;
+          used_at?: string | null;
+          username?: string | null;
+        };
+        Update: {
+          company_ids?: string[];
+          created_at?: string;
+          created_by?: string | null;
+          expires_at?: string;
+          id?: string;
+          invite_email?: string;
+          module_keys?: string[];
+          role_key?: string;
+          token_hash?: string;
+          used_at?: string | null;
+          username?: string | null;
+        };
+        Relationships: [];
+      };
+      role_module_permissions: {
+        Row: {
+          created_at: string;
+          id: string;
+          module_key: string;
+          role_key: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          module_key: string;
+          role_key: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          module_key?: string;
+          role_key?: string;
         };
         Relationships: [];
       };
@@ -278,23 +401,102 @@ export type Database = {
         };
         Relationships: [];
       };
-      user_roles: {
+      user_campaign_permissions: {
+        Row: {
+          campaign_id: string;
+          created_at: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          campaign_id: string;
+          created_at?: string;
+          id?: string;
+          user_id: string;
+        };
+        Update: {
+          campaign_id?: string;
+          created_at?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_campaign_permissions_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_module_permissions: {
         Row: {
           created_at: string;
           id: string;
-          role: Database["public"]["Enums"]["app_role"];
+          module_key: string;
           user_id: string;
         };
         Insert: {
           created_at?: string;
           id?: string;
-          role: Database["public"]["Enums"]["app_role"];
+          module_key: string;
           user_id: string;
         };
         Update: {
           created_at?: string;
           id?: string;
-          role?: Database["public"]["Enums"]["app_role"];
+          module_key?: string;
+          user_id?: string;
+        };
+        Relationships: [];
+      };
+      user_company_permissions: {
+        Row: {
+          company_id: string;
+          created_at: string;
+          id: string;
+          user_id: string;
+        };
+        Insert: {
+          company_id: string;
+          created_at?: string;
+          id?: string;
+          user_id: string;
+        };
+        Update: {
+          company_id?: string;
+          created_at?: string;
+          id?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_company_permissions_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      user_roles: {
+        Row: {
+          created_at: string;
+          id: string;
+          role: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          role: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          role?: string;
           user_id?: string;
         };
         Relationships: [];
@@ -350,16 +552,31 @@ export type Database = {
     };
     Functions: {
       get_feedback_link_data: { Args: { p_code: string }; Returns: Json };
+      get_email_by_username: { Args: { p_username: string }; Returns: string };
       has_permission: {
         Args: {
-          _permission: Database["public"]["Enums"]["admin_permission"];
+          _permission: string;
+          _user_id: string;
+        };
+        Returns: boolean;
+      };
+      has_campaign_access: {
+        Args: {
+          _campaign_id: string;
+          _user_id: string;
+        };
+        Returns: boolean;
+      };
+      has_company_access: {
+        Args: {
+          _company_id: string;
           _user_id: string;
         };
         Returns: boolean;
       };
       has_role: {
         Args: {
-          _role: Database["public"]["Enums"]["app_role"];
+          _role: string;
           _user_id: string;
         };
         Returns: boolean;

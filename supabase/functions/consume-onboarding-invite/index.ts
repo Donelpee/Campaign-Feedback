@@ -1,0 +1,186 @@
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type",
+};
+
+declare const Deno: {
+  serve: (handler: (request: Request) => Response | Promise<Response>) => void;
+  env: {
+    get: (name: string) => string | undefined;
+  };
+};
+
+interface ConsumePayload {
+  token: string;
+  username?: string;
+  password: string;
+}
+
+function jsonResponse(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+async function postgrest<T>(path: string, options: RequestInit): Promise<T> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing service credentials.");
+
+  const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`PostgREST error (${response.status}): ${text}`);
+  }
+  if (response.status === 204) return [] as unknown as T;
+  return (await response.json()) as T;
+}
+
+async function hashToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function createAuthUser(params: {
+  email: string;
+  username: string;
+  password: string;
+}): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!supabaseUrl || !serviceKey) throw new Error("Missing service credentials.");
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
+    method: "POST",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: params.username,
+        username: params.username,
+      },
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Create user failed (${response.status}): ${text}`);
+  }
+  const body = (await response.json()) as { user?: { id?: string } };
+  const userId = body?.user?.id;
+  if (!userId) throw new Error("Created user but id was not returned.");
+  return userId;
+}
+
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
+
+  try {
+    const payload = (await request.json()) as ConsumePayload;
+    const token = String(payload?.token || "").trim();
+    const password = String(payload?.password || "");
+    if (!token) return jsonResponse(400, { error: "Token is required." });
+    if (password.length < 6) return jsonResponse(400, { error: "Password must be at least 6 characters." });
+
+    const tokenHash = await hashToken(token);
+    const invites = await postgrest<Array<{
+      id: string;
+      invite_email: string;
+      role_key: string;
+      username: string | null;
+      module_keys: string[];
+      company_ids: string[];
+      expires_at: string;
+      used_at: string | null;
+    }>>(
+      `onboarding_invites?token_hash=eq.${tokenHash}&select=id,invite_email,role_key,username,module_keys,company_ids,expires_at,used_at&limit=1`,
+      { method: "GET" },
+    );
+
+    const invite = invites[0];
+    if (!invite) return jsonResponse(404, { error: "Invalid onboarding link." });
+    if (invite.used_at) return jsonResponse(410, { error: "This onboarding link has already been used." });
+    if (new Date(invite.expires_at).getTime() < Date.now()) {
+      return jsonResponse(410, { error: "This onboarding link has expired." });
+    }
+
+    const username = String(payload?.username || invite.username || "")
+      .trim();
+    if (!username) return jsonResponse(400, { error: "Username is required." });
+
+    const userId = await createAuthUser({
+      email: invite.invite_email,
+      username,
+      password,
+    });
+
+    await postgrest(
+      "user_roles",
+      {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify([{ user_id: userId, role: invite.role_key }]),
+      },
+    );
+
+    if (invite.role_key !== "super_admin" && invite.module_keys.length > 0) {
+      await postgrest(
+        "user_module_permissions",
+        {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(
+            invite.module_keys.map((module_key) => ({ user_id: userId, module_key })),
+          ),
+        },
+      );
+    }
+    if (invite.role_key !== "super_admin" && invite.company_ids.length > 0) {
+      await postgrest(
+        "user_company_permissions",
+        {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify(
+            invite.company_ids.map((company_id) => ({ user_id: userId, company_id })),
+          ),
+        },
+      );
+    }
+
+    await postgrest(
+      `onboarding_invites?id=eq.${invite.id}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ used_at: new Date().toISOString() }),
+      },
+    );
+
+    return jsonResponse(200, { message: "Onboarding completed." });
+  } catch (error) {
+    console.error("consume-onboarding-invite error:", error);
+    return jsonResponse(500, {
+      error: "Failed to complete onboarding.",
+      details: error instanceof Error ? error.message : String(error),
+    });
+  }
+});

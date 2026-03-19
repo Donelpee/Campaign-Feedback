@@ -618,7 +618,7 @@ export function CampaignWizard({
           <Button
             variant="default"
             onClick={handleBack}
-            disabled={(currentStep === 0 && shouldShowModePicker) || isSubmitting}
+            disabled={currentStep <= 0 || shouldShowModePicker || isSubmitting}
             className="h-11 flex-1 min-w-[130px] px-4 text-base bg-slate-700 text-white hover:bg-slate-800 sm:flex-none sm:px-5"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />

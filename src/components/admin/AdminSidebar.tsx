@@ -68,7 +68,7 @@ const menuItems: MenuItem[] = [
 
 const managementItems: MenuItem[] = [
   {
-    title: "Admin Users",
+    title: "Admin/Users",
     url: "/admin/users",
     icon: Users,
     permission: "users",

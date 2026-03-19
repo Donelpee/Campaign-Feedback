@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,13 +38,16 @@ export default function Auth() {
   } = useAuth();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [signupName, setSignupName] = useState("");
   const [magicLinkCooldown, setMagicLinkCooldown] = useState(0);
   const [resetCooldown, setResetCooldown] = useState(0);
+  const [onboardingToken, setOnboardingToken] = useState("");
+  const [onboardingUsername, setOnboardingUsername] = useState("");
+  const [onboardingPassword, setOnboardingPassword] = useState("");
 
   const supabaseHost = (() => {
     try {
@@ -61,6 +65,11 @@ export default function Auth() {
   }, [user, authLoading, navigate]);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setOnboardingToken(params.get("onboarding_token") || "");
+  }, []);
+
+  useEffect(() => {
     if (magicLinkCooldown <= 0 && resetCooldown <= 0) return;
     const interval = setInterval(() => {
       setMagicLinkCooldown((current) => (current > 0 ? current - 1 : 0));
@@ -76,7 +85,9 @@ export default function Auth() {
     e.preventDefault();
 
     try {
-      emailSchema.parse(loginEmail);
+      if (!loginIdentifier.trim()) {
+        throw new Error("identifier_required");
+      }
       passwordSchema.parse(loginPassword);
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -87,10 +98,38 @@ export default function Auth() {
         });
         return;
       }
+      if (err instanceof Error && err.message === "identifier_required") {
+        toast({
+          variant: "destructive",
+          title: "Invalid input",
+          description: "Please enter your email or username.",
+        });
+        return;
+      }
     }
 
     setIsLoading(true);
-    const { error } = await signIn(loginEmail, loginPassword);
+    let emailToUse = loginIdentifier.trim();
+    if (!emailToUse.includes("@")) {
+      const { data, error: lookupError } = await supabase.rpc(
+        "get_email_by_username",
+        {
+          p_username: emailToUse,
+        },
+      );
+      if (lookupError || !data) {
+        setIsLoading(false);
+        toast({
+          variant: "destructive",
+          title: "Sign in failed",
+          description: "Invalid username or password.",
+        });
+        return;
+      }
+      emailToUse = data;
+    }
+
+    const { error } = await signIn(emailToUse, loginPassword);
 
     if (error) {
       if (error.message.includes("Invalid login credentials")) {
@@ -181,7 +220,7 @@ export default function Auth() {
 
   const handleResetPassword = async () => {
     try {
-      emailSchema.parse(loginEmail);
+      emailSchema.parse(loginIdentifier);
     } catch {
       toast({
         variant: "destructive",
@@ -201,7 +240,7 @@ export default function Auth() {
     }
 
     setIsLoading(true);
-    const { error } = await resetPassword(loginEmail);
+    const { error } = await resetPassword(loginIdentifier);
     setIsLoading(false);
 
     if (error) {
@@ -232,7 +271,7 @@ export default function Auth() {
 
   const handleMagicLink = async () => {
     try {
-      emailSchema.parse(loginEmail);
+      emailSchema.parse(loginIdentifier);
     } catch {
       toast({
         variant: "destructive",
@@ -252,7 +291,7 @@ export default function Auth() {
     }
 
     setIsLoading(true);
-    const { error } = await signInWithMagicLink(loginEmail);
+    const { error } = await signInWithMagicLink(loginIdentifier);
     setIsLoading(false);
 
     if (error) {
@@ -279,6 +318,42 @@ export default function Auth() {
       title: "Magic link sent",
       description: "Open it from your email to sign in instantly.",
     });
+  };
+
+  const handleOnboardingComplete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onboardingToken) return;
+    if (onboardingPassword.trim().length < 6) {
+      toast({
+        variant: "destructive",
+        title: "Invalid password",
+        description: "Password must be at least 6 characters.",
+      });
+      return;
+    }
+    setIsLoading(true);
+    const { error } = await supabase.functions.invoke("consume-onboarding-invite", {
+      body: {
+        token: onboardingToken,
+        username: onboardingUsername,
+        password: onboardingPassword,
+      },
+    });
+    setIsLoading(false);
+    if (error) {
+      toast({
+        variant: "destructive",
+        title: "Onboarding failed",
+        description: error.message,
+      });
+      return;
+    }
+    toast({
+      title: "Onboarding complete",
+      description: "Your account is ready. Please sign in.",
+    });
+    setOnboardingToken("");
+    window.history.replaceState({}, "", "/auth");
   };
 
   if (authLoading) {
@@ -325,6 +400,44 @@ export default function Auth() {
               <CardDescription>Sign in to access the admin dashboard</CardDescription>
             </CardHeader>
             <CardContent>
+              {onboardingToken ? (
+                <form onSubmit={handleOnboardingComplete} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="onboard-username">Username</Label>
+                    <Input
+                      id="onboard-username"
+                      type="text"
+                      placeholder="your.username"
+                      value={onboardingUsername}
+                      onChange={(e) => setOnboardingUsername(e.target.value)}
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="onboard-password">Set Password</Label>
+                    <Input
+                      id="onboard-password"
+                      type="password"
+                      placeholder="Minimum 6 characters"
+                      value={onboardingPassword}
+                      onChange={(e) => setOnboardingPassword(e.target.value)}
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Completing...
+                      </>
+                    ) : (
+                      "Complete Onboarding"
+                    )}
+                  </Button>
+                </form>
+              ) : (
               <Tabs defaultValue="login" className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="login">Sign In</TabsTrigger>
@@ -334,13 +447,13 @@ export default function Auth() {
                 <TabsContent value="login">
                   <form onSubmit={handleLogin} className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="login-email">Email</Label>
+                      <Label htmlFor="login-email">Email or Username</Label>
                       <Input
                         id="login-email"
-                        type="email"
-                        placeholder="admin@company.com"
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
+                        type="text"
+                        placeholder="admin@company.com or username"
+                        value={loginIdentifier}
+                        onChange={(e) => setLoginIdentifier(e.target.value)}
                         required
                         disabled={isLoading}
                       />
@@ -455,11 +568,12 @@ export default function Auth() {
                   </form>
                 </TabsContent>
               </Tabs>
+              )}
             </CardContent>
           </Card>
 
           <p className="text-center text-xs text-muted-foreground mt-6">
-            New admin accounts require role assignment by a super admin.
+            New user accounts require role assignment by an admin.
           </p>
           <p className="text-center text-[11px] text-muted-foreground mt-2">
             Connected Supabase: {supabaseHost}
