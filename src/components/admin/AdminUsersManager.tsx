@@ -128,6 +128,7 @@ export function AdminUsersManager() {
   const invokeFunction = async (
     functionName: string,
     body: Record<string, unknown>,
+    attempt = 0,
   ) => {
     const { data: sessionData } = await supabase.auth.getSession();
     let session = sessionData.session;
@@ -184,6 +185,18 @@ export function AdminUsersManager() {
         parsed?.message ||
         raw ||
         `Request failed with status ${response.status}`;
+
+      if (
+        response.status === 401 &&
+        /invalid jwt/i.test(message) &&
+        attempt < 1
+      ) {
+        const { error: refreshError } = await supabase.auth.refreshSession();
+        if (!refreshError) {
+          return invokeFunction(functionName, body, attempt + 1);
+        }
+      }
+
       throw new Error(`${message} (status ${response.status})`);
     }
 
