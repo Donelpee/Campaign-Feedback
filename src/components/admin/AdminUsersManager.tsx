@@ -125,6 +125,21 @@ export function AdminUsersManager() {
   const [newRoleName, setNewRoleName] = useState("");
   const [newModuleName, setNewModuleName] = useState("");
 
+  const getFunctionErrorMessage = async (error: unknown) => {
+    const fallback = error instanceof Error ? error.message : "Request failed";
+    const withContext = error as { context?: Response };
+    if (!withContext?.context) return fallback;
+    try {
+      const payload = (await withContext.context.json()) as {
+        error?: string;
+        details?: string;
+      };
+      return payload.error || payload.details || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
   const toggleNewPermission = (permission: AdminPermission) => {
     setNewPermissions((prev) =>
       prev.includes(permission)
@@ -281,7 +296,10 @@ export function AdminUsersManager() {
             },
           },
         );
-        if (createError) throw createError;
+        if (createError) {
+          const message = await getFunctionErrorMessage(createError);
+          throw new Error(message);
+        }
         return { invited: false as const, created: true as const };
       }
 
@@ -304,7 +322,10 @@ export function AdminUsersManager() {
             },
           },
         );
-        if (inviteError) throw inviteError;
+        if (inviteError) {
+          const message = await getFunctionErrorMessage(inviteError);
+          throw new Error(message);
+        }
         return { invited: true as const, created: false as const };
       }
 

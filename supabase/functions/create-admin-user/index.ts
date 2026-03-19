@@ -139,6 +139,10 @@ async function createAuthUser(params: {
   return userId;
 }
 
+function escapePostgrestValue(value: string): string {
+  return encodeURIComponent(value.replace(/,/g, "\\,"));
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -175,11 +179,19 @@ Deno.serve(async (request) => {
     }
 
     const existingProfiles = await postgrest<Array<{ user_id: string }>>(
-      `profiles?email=eq.${encodeURIComponent(email)}&select=user_id&limit=1`,
+      `profiles?email=eq.${escapePostgrestValue(email)}&select=user_id&limit=1`,
       { method: "GET" },
     );
     if (existingProfiles.length > 0) {
       return jsonResponse(409, { error: "A user with this email already exists." });
+    }
+
+    const existingUsername = await postgrest<Array<{ user_id: string }>>(
+      `profiles?username=eq.${escapePostgrestValue(username)}&select=user_id&limit=1`,
+      { method: "GET" },
+    );
+    if (existingUsername.length > 0) {
+      return jsonResponse(409, { error: "This username is already in use." });
     }
 
     const userId = await createAuthUser({ email, username, password });
