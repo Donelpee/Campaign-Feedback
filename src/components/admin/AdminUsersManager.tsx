@@ -130,77 +130,44 @@ export function AdminUsersManager() {
     body: Record<string, unknown>,
     attempt = 0,
   ) => {
-    const { data: sessionData } = await supabase.auth.getSession();
-    let session = sessionData.session;
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    const isExpiredOrNearExpiry =
-      !session?.access_token ||
-      !session.expires_at ||
-      session.expires_at <= nowSeconds + 30;
+    const { error } = await supabase.functions.invoke(functionName, {
+      body,
+    });
+    if (!error) return null;
 
-    if (isExpiredOrNearExpiry) {
-      const { data: refreshData, error: refreshError } =
-        await supabase.auth.refreshSession();
-      if (refreshError) {
-        throw new Error("Session expired. Please sign in again.");
-      }
-      session = refreshData.session;
-    }
+    const withContext = error as { context?: Response };
+    const status = withContext.context?.status;
+    let message = error.message || "Request failed";
 
-    const accessToken = session?.access_token;
-    if (!accessToken) throw new Error("You are not authenticated.");
-
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      },
-    );
-
-    const raw = await response.text();
-    let parsed: { error?: string; details?: string; message?: string } | null =
-      null;
-    if (raw) {
+    if (withContext.context) {
       try {
-        parsed = JSON.parse(raw) as {
-          error?: string;
-          details?: string;
-          message?: string;
-        };
-      } catch {
-        parsed = null;
-      }
-    }
-
-    if (!response.ok) {
-      const message =
-        parsed?.error ||
-        parsed?.details ||
-        parsed?.message ||
-        raw ||
-        `Request failed with status ${response.status}`;
-
-      if (
-        response.status === 401 &&
-        /invalid jwt/i.test(message) &&
-        attempt < 1
-      ) {
-        const { error: refreshError } = await supabase.auth.refreshSession();
-        if (!refreshError) {
-          return invokeFunction(functionName, body, attempt + 1);
+        const raw = await withContext.context.text();
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw) as {
+              error?: string;
+              details?: string;
+              message?: string;
+            };
+            message =
+              parsed.error || parsed.details || parsed.message || raw || message;
+          } catch {
+            message = raw;
+          }
         }
+      } catch {
+        // Keep fallback message
       }
-
-      throw new Error(`${message} (status ${response.status})`);
     }
 
-    return parsed;
+    if (status === 401 && /invalid jwt/i.test(message) && attempt < 1) {
+      const { error: refreshError } = await supabase.auth.refreshSession();
+      if (!refreshError) {
+        return invokeFunction(functionName, body, attempt + 1);
+      }
+    }
+
+    throw new Error(status ? `${message} (status ${status})` : message);
   };
 
   const toggleNewPermission = (permission: AdminPermission) => {
