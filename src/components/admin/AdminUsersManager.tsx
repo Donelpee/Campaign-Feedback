@@ -150,7 +150,7 @@ export function AdminUsersManager() {
               message?: string;
             };
             message =
-              parsed.error || parsed.details || parsed.message || raw || message;
+              parsed.details || parsed.error || parsed.message || raw || message;
           } catch {
             message = raw;
           }
