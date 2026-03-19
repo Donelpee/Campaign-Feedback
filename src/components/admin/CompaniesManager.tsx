@@ -218,7 +218,7 @@ export function CompaniesManager() {
                   Add Company
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="border-slate-200/90 bg-slate-100/95">
                 <DialogHeader>
                   <DialogTitle>
                     {editingCompany ? "Edit Company" : "Add New Company"}
@@ -229,7 +229,7 @@ export function CompaniesManager() {
                       : "Enter the details for the new company."}
                   </DialogDescription>
                 </DialogHeader>
-                <div className="space-y-4 py-4">
+                <div className="easy-form-shell space-y-4 py-4">
                   <div className="space-y-2">
                     <Label>Company Logo</Label>
                     <LogoUpload

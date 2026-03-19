@@ -481,8 +481,7 @@ export function CampaignWizard({
   function handleBack() {
     if (shouldShowModePicker) return;
     setShowValidation(false);
-    if (currentStep === 0 && !wizardData.campaignId) {
-      setShowModePicker(true);
+    if (currentStep === 0) {
       return;
     }
     setCurrentStep((s) => Math.max(0, s - 1));

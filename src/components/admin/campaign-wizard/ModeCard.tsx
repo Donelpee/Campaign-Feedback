@@ -28,6 +28,7 @@ export function ModeCard({
       className={cn(
         "cw-soft-panel cw-soft-panel-hover min-h-[220px]",
         selected && "border-primary/60 ring-2 ring-primary/20",
+        comingSoon && "border-2 border-red-400/90 ring-1 ring-red-200/80",
         disabled && "opacity-70",
       )}
     >
@@ -36,7 +37,11 @@ export function ModeCard({
           <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <Icon className="h-5 w-5" />
           </div>
-          {comingSoon && <Badge variant="secondary">Coming soon</Badge>}
+          {comingSoon && (
+            <Badge variant="secondary" className="border border-red-300 bg-red-50 text-xs font-extrabold uppercase tracking-wide text-red-700">
+              Coming Soon
+            </Badge>
+          )}
         </div>
         <CardTitle className="text-lg">{title}</CardTitle>
       </CardHeader>

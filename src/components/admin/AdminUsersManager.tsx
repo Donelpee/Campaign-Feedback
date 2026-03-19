@@ -116,7 +116,17 @@ export function AdminUsersManager() {
         .maybeSingle();
 
       if (profileError) throw profileError;
-      if (!profile) throw new Error("User not found. They must sign up first.");
+      if (!profile) {
+        const { error: inviteError } = await supabase.auth.signInWithOtp({
+          email: normalizedEmail,
+          options: {
+            shouldCreateUser: true,
+            emailRedirectTo: `${window.location.origin}/auth`,
+          },
+        });
+        if (inviteError) throw inviteError;
+        return { invited: true as const };
+      }
 
       const { data: existing } = await supabase
         .from("user_roles")
@@ -132,10 +142,19 @@ export function AdminUsersManager() {
         .insert({ user_id: profile.user_id, role });
 
       if (error) throw error;
+      return { invited: false as const };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      toast({ title: "Role added successfully" });
+    onSuccess: (result) => {
+      if (result.invited) {
+        toast({
+          title: "Invite sent",
+          description:
+            "User account invite sent. Once they sign in, add role and permissions here.",
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+        toast({ title: "Role added successfully" });
+      }
       setIsAddOpen(false);
       setNewEmail("");
       setNewRole("admin");

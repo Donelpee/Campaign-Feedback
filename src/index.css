@@ -353,6 +353,19 @@
       0 14px 24px rgba(0, 0, 0, 0.24);
   }
 
+  .admin-mode-dark .metric-value {
+    color: #f3f8ff;
+  }
+
+  .admin-mode-dark .kpi-label,
+  .admin-mode-dark .metric-title {
+    color: #d6e7f9;
+  }
+
+  .admin-mode-dark .metric-icon {
+    color: rgba(194, 221, 246, 0.86);
+  }
+
   .admin-mode-dark .admin-global-bell {
     background-color: rgba(27, 39, 55, 0.95);
     border-color: rgba(79, 101, 127, 0.62);

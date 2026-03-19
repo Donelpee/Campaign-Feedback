@@ -71,6 +71,8 @@ export function StepBasicInfo({
   const endDateMissing = !data.endDate;
   const invalidDateRange =
     Boolean(data.startDate && data.endDate) && data.endDate < data.startDate;
+  const dateRangeComplete =
+    Boolean(data.startDate && data.endDate) && !invalidDateRange;
   const isQuickStart = creationMode === "quick_start";
 
   const checks = [
@@ -79,7 +81,7 @@ export function StepBasicInfo({
     ...(isQuickStart ? [] : [!descriptionMissing]),
     !startDateMissing,
     !endDateMissing,
-    !invalidDateRange,
+    dateRangeComplete,
   ];
   const completed = checks.filter(Boolean).length;
   const percent = Math.round((completed / checks.length) * 100);
