@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -285,8 +286,10 @@ export function AdminUsersManager() {
     newCompanyIds.length === 0;
 
   const { data: adminUsers, isLoading } = useQuery({
-    queryKey: ["admin-users"],
+    queryKey: ["admin-users", user?.id, canManageUsers],
     queryFn: async () => {
+      if (!user?.id) return [] as UserRoleRow[];
+
       const { data: roles, error } = await supabase
         .from("user_roles")
         .select("*")
@@ -294,10 +297,13 @@ export function AdminUsersManager() {
 
       if (error) throw error;
 
-      const { data: profiles, error: profilesError } = await supabase
+      const profilesQuery = supabase
         .from("profiles")
         .select("user_id, email, full_name, created_at")
         .order("created_at", { ascending: false });
+      const { data: profiles, error: profilesError } = canManageUsers
+        ? await profilesQuery
+        : await profilesQuery.eq("user_id", user.id);
       if (profilesError) throw profilesError;
       if (!profiles || profiles.length === 0) return [] as UserRoleRow[];
 
@@ -336,6 +342,7 @@ export function AdminUsersManager() {
         };
       }) as UserRoleRow[];
     },
+    enabled: Boolean(user?.id),
   });
 
   const addUserRole = useMutation({
@@ -955,9 +962,7 @@ export function AdminUsersManager() {
                   <TableHead>Role</TableHead>
                   <TableHead>Permissions</TableHead>
                   <TableHead>Added</TableHead>
-                  {canManageUsers && (
-                    <TableHead className="w-[100px]">Actions</TableHead>
-                  )}
+                  <TableHead className="w-[130px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1011,8 +1016,8 @@ export function AdminUsersManager() {
                     <TableCell className="text-muted-foreground">
                       {new Date(ur.created_at).toLocaleDateString()}
                     </TableCell>
-                    {canManageUsers && (
-                      <TableCell>
+                    <TableCell>
+                      {canManageUsers ? (
                         <div className="flex gap-1">
                           <Button
                             variant="ghost"
@@ -1040,17 +1045,21 @@ export function AdminUsersManager() {
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </div>
-                      </TableCell>
-                    )}
-                  </TableRow>
+                      ) : (
+                        <Button asChild variant="outline" size="sm">
+                          <Link to="/admin/settings">Edit Profile</Link>
+                        </Button>
+                      )}
+                    </TableCell>
+                </TableRow>
                 ))}
                 {adminUsers?.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={canManageUsers ? 6 : 5}
+                      colSpan={6}
                       className="text-center text-muted-foreground py-8"
                     >
-                      No admin users found
+                      {canManageUsers ? "No users found" : "No profile found"}
                     </TableCell>
                   </TableRow>
                 )}

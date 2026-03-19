@@ -43,6 +43,44 @@ export function SettingsManager() {
   const [defaultCreationMode, setDefaultCreationMode] =
     useState<CreationMode>("guided_buddy");
 
+  const applyAppearance = useCallback(
+    (darkMode: boolean, theme: "ocean" | "meadow") => {
+      const root = document.documentElement;
+      root.classList.remove(
+        "admin-mode-dark",
+        "admin-palette-ocean",
+        "admin-palette-meadow",
+      );
+      if (darkMode) root.classList.add("admin-mode-dark");
+      root.classList.add(
+        theme === "meadow" ? "admin-palette-meadow" : "admin-palette-ocean",
+      );
+    },
+    [],
+  );
+
+  const persistAppearance = useCallback(
+    async (darkMode: boolean, theme: "ocean" | "meadow") => {
+      if (!user?.id) return;
+      const { error } = await supabase.from("user_settings").upsert(
+        {
+          user_id: user.id,
+          dark_mode_enabled: darkMode,
+          color_theme: theme,
+        },
+        { onConflict: "user_id" },
+      );
+      if (error) {
+        toast({
+          title: "Error",
+          description: "Failed to apply appearance settings.",
+          variant: "destructive",
+        });
+      }
+    },
+    [toast, user?.id],
+  );
+
   const loadSettings = useCallback(async () => {
     if (!user?.id) {
       setIsLoadingSettings(false);
@@ -95,6 +133,10 @@ export function SettingsManager() {
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  useEffect(() => {
+    applyAppearance(darkModeEnabled, colorTheme);
+  }, [applyAppearance, colorTheme, darkModeEnabled]);
 
   const saveSettings = async () => {
     if (!user?.id) return;
@@ -168,6 +210,16 @@ export function SettingsManager() {
       setNewPassword("");
       setConfirmPassword("");
     }
+  };
+
+  const handleDarkModeChange = (nextValue: boolean) => {
+    setDarkModeEnabled(nextValue);
+    void persistAppearance(nextValue, colorTheme);
+  };
+
+  const handleColorThemeChange = (nextTheme: "ocean" | "meadow") => {
+    setColorTheme(nextTheme);
+    void persistAppearance(darkModeEnabled, nextTheme);
   };
 
   return (
@@ -321,7 +373,7 @@ export function SettingsManager() {
             </div>
             <Switch
               checked={darkModeEnabled}
-              onCheckedChange={setDarkModeEnabled}
+              onCheckedChange={handleDarkModeChange}
               disabled={isLoadingSettings || isSavingSettings}
             />
           </div>
@@ -335,7 +387,7 @@ export function SettingsManager() {
               <Button
                 type="button"
                 variant={colorTheme === "ocean" ? "default" : "outline"}
-                onClick={() => setColorTheme("ocean")}
+                onClick={() => handleColorThemeChange("ocean")}
                 disabled={isLoadingSettings || isSavingSettings}
                 className="justify-start"
               >
@@ -344,7 +396,7 @@ export function SettingsManager() {
               <Button
                 type="button"
                 variant={colorTheme === "meadow" ? "default" : "outline"}
-                onClick={() => setColorTheme("meadow")}
+                onClick={() => handleColorThemeChange("meadow")}
                 disabled={isLoadingSettings || isSavingSettings}
                 className="justify-start"
               >
