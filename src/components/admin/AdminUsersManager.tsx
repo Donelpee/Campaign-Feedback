@@ -125,29 +125,53 @@ export function AdminUsersManager() {
   const [newRoleName, setNewRoleName] = useState("");
   const [newModuleName, setNewModuleName] = useState("");
 
-  const getFunctionErrorMessage = async (error: unknown) => {
-    const fallback = error instanceof Error ? error.message : "Request failed";
-    const withContext = error as { context?: Response; name?: string };
-    if (!withContext?.context) return fallback;
-    try {
-      const status = withContext.context.status;
-      const raw = await withContext.context.text();
-      if (!raw) return `${fallback} (status ${status})`;
+  const invokeFunction = async (
+    functionName: string,
+    body: Record<string, unknown>,
+  ) => {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error("You are not authenticated.");
+
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${functionName}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+
+    const raw = await response.text();
+    let parsed: { error?: string; details?: string; message?: string } | null =
+      null;
+    if (raw) {
       try {
-        const payload = JSON.parse(raw) as {
+        parsed = JSON.parse(raw) as {
           error?: string;
           details?: string;
           message?: string;
         };
-        const message =
-          payload.error || payload.details || payload.message || raw;
-        return `${message} (status ${status})`;
       } catch {
-        return `${raw} (status ${status})`;
+        parsed = null;
       }
-    } catch {
-      return fallback;
     }
+
+    if (!response.ok) {
+      const message =
+        parsed?.error ||
+        parsed?.details ||
+        parsed?.message ||
+        raw ||
+        `Request failed with status ${response.status}`;
+      throw new Error(`${message} (status ${response.status})`);
+    }
+
+    return parsed;
   };
 
   const toggleNewPermission = (permission: AdminPermission) => {
@@ -293,23 +317,14 @@ export function AdminUsersManager() {
         if (!normalizedUsername || String(password || "").trim().length < 6) {
           throw new Error("Username and password (min 6 characters) are required.");
         }
-        const { error: createError } = await supabase.functions.invoke(
-          "create-admin-user",
-          {
-            body: {
-              email: normalizedEmail,
-              username: normalizedUsername,
-              password,
-              role,
-              permissions,
-              companyIds,
-            },
-          },
-        );
-        if (createError) {
-          const message = await getFunctionErrorMessage(createError);
-          throw new Error(message);
-        }
+        await invokeFunction("create-admin-user", {
+          email: normalizedEmail,
+          username: normalizedUsername,
+          password,
+          role,
+          permissions,
+          companyIds,
+        });
         return { invited: false as const, created: true as const };
       }
 
@@ -321,21 +336,12 @@ export function AdminUsersManager() {
 
       if (profileError) throw profileError;
       if (!profile) {
-        const { error: inviteError } = await supabase.functions.invoke(
-          "invite-admin-user",
-          {
-            body: {
-              email: normalizedEmail,
-              role,
-              permissions,
-              companyIds,
-            },
-          },
-        );
-        if (inviteError) {
-          const message = await getFunctionErrorMessage(inviteError);
-          throw new Error(message);
-        }
+        await invokeFunction("invite-admin-user", {
+          email: normalizedEmail,
+          role,
+          permissions,
+          companyIds,
+        });
         return { invited: true as const, created: false as const };
       }
 
