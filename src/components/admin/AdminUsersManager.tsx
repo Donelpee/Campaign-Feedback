@@ -130,7 +130,23 @@ export function AdminUsersManager() {
     body: Record<string, unknown>,
   ) => {
     const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
+    let session = sessionData.session;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const isExpiredOrNearExpiry =
+      !session?.access_token ||
+      !session.expires_at ||
+      session.expires_at <= nowSeconds + 30;
+
+    if (isExpiredOrNearExpiry) {
+      const { data: refreshData, error: refreshError } =
+        await supabase.auth.refreshSession();
+      if (refreshError) {
+        throw new Error("Session expired. Please sign in again.");
+      }
+      session = refreshData.session;
+    }
+
+    const accessToken = session?.access_token;
     if (!accessToken) throw new Error("You are not authenticated.");
 
     const response = await fetch(
