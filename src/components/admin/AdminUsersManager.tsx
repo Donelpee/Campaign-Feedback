@@ -126,6 +126,10 @@ export function AdminUsersManager() {
   const [editUser, setEditUser] = useState<UserRoleRow | null>(null);
   const [newRoleName, setNewRoleName] = useState("");
   const [newModuleName, setNewModuleName] = useState("");
+  const [manageRoleKey, setManageRoleKey] = useState<string>("");
+  const [managedRoleModules, setManagedRoleModules] = useState<AdminPermission[]>(
+    [],
+  );
 
   const invokeFunction = async (
     functionName: string,
@@ -240,12 +244,40 @@ export function AdminUsersManager() {
     enabled: canManageUsers && Boolean(newRole),
   });
 
+  const { data: manageRoleModules = [] } = useQuery({
+    queryKey: ["role-module-permissions-manage", manageRoleKey],
+    queryFn: async () => {
+      if (!manageRoleKey) return [] as AdminPermission[];
+      const { data, error } = await supabase
+        .from("role_module_permissions")
+        .select("module_key")
+        .eq("role_key", manageRoleKey);
+      if (error) throw error;
+      return (data || []).map((row) => row.module_key as AdminPermission);
+    },
+    enabled: canManageUsers && Boolean(manageRoleKey),
+  });
+
   useEffect(() => {
     if (!newRole || newRole === "super_admin") return;
     if (selectedRoleModules.length > 0) {
       setNewPermissions(selectedRoleModules);
     }
   }, [newRole, selectedRoleModules]);
+
+  useEffect(() => {
+    if (!manageRoleKey) return;
+    setManagedRoleModules(manageRoleModules);
+  }, [manageRoleKey, manageRoleModules]);
+
+  useEffect(() => {
+    if (!manageRoleKey && roleOptions.length > 0) {
+      const firstNonSuperRole =
+        roleOptions.find((r) => r.role_key !== "super_admin")?.role_key ||
+        roleOptions[0].role_key;
+      setManageRoleKey(firstNonSuperRole);
+    }
+  }, [manageRoleKey, roleOptions]);
 
   const requiresCompanySelection =
     newRole !== "super_admin" &&
@@ -338,6 +370,14 @@ export function AdminUsersManager() {
         .maybeSingle();
       if (profileError) throw profileError;
 
+      if (profile) {
+        return {
+          invited: false as const,
+          created: false as const,
+          existed: true as const,
+        };
+      }
+
       if (method === "credentials" && !profile) {
         if (!normalizedUsername || String(password || "").trim().length < 6) {
           throw new Error("Username and password (min 6 characters) are required.");
@@ -360,72 +400,27 @@ export function AdminUsersManager() {
           permissions,
           companyIds,
         });
-        return { invited: true as const, created: false as const };
+        return {
+          invited: true as const,
+          created: false as const,
+          existed: false as const,
+        };
       }
 
-      const { data: existingRoles, error: existingError } = await supabase
-        .from("user_roles")
-        .select("id, role")
-        .eq("user_id", profile.user_id)
-        .returns<Array<{ id: string; role: AppRole }>>();
-      if (existingError) throw existingError;
-
-      if ((existingRoles || []).length > 0) {
-        if (!isSuperAdmin && existingRoles.some((entry) => entry.role === "super_admin")) {
-          throw new Error("Only Super Admin can modify Super Admin accounts.");
-        }
-        const { error: clearRolesError } = await supabase
-          .from("user_roles")
-          .delete()
-          .eq("user_id", profile.user_id);
-        if (clearRolesError) throw clearRolesError;
-      }
-
-      const { error: insertRoleError } = await supabase
-        .from("user_roles")
-        .insert({ user_id: profile.user_id, role });
-      if (insertRoleError) throw insertRoleError;
-
-      const { error: clearPermsError } = await supabase
-        .from("user_module_permissions")
-        .delete()
-        .eq("user_id", profile.user_id);
-      if (clearPermsError) throw clearPermsError;
-
-      if (role !== "super_admin" && permissions.length > 0) {
-        const { error: insertPermsError } = await supabase
-          .from("user_module_permissions")
-          .insert(
-            permissions.map((permission) => ({
-              user_id: profile.user_id,
-              module_key: permission,
-            })),
-          );
-        if (insertPermsError) throw insertPermsError;
-      }
-
-      const { error: clearCompanyPermsError } = await supabase
-        .from("user_company_permissions")
-        .delete()
-        .eq("user_id", profile.user_id);
-      if (clearCompanyPermsError) throw clearCompanyPermsError;
-
-      if (role !== "super_admin" && companyIds.length > 0) {
-        const { error: insertCompanyPermsError } = await supabase
-          .from("user_company_permissions")
-          .insert(
-            companyIds.map((companyId) => ({
-              user_id: profile.user_id,
-              company_id: companyId,
-            })),
-          );
-        if (insertCompanyPermsError) throw insertCompanyPermsError;
-      }
-      return { invited: false as const, created: false as const };
+      return {
+        invited: false as const,
+        created: false as const,
+        existed: false as const,
+      };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      if (result.invited) {
+      if (result.existed) {
+        toast({
+          title: "User already exists",
+          description: "No changes were made. You can edit access from the users table.",
+        });
+      } else if (result.invited) {
         toast({
           title: "Invite sent",
           description:
@@ -449,6 +444,9 @@ export function AdminUsersManager() {
       setNewCompanyIds([]);
     },
     onError: (error: Error) => {
+      if (/already exists/i.test(error.message)) {
+        queryClient.invalidateQueries({ queryKey: ["admin-users"] });
+      }
       toast({
         title: "Error",
         description: error.message,
@@ -554,6 +552,55 @@ export function AdminUsersManager() {
       queryClient.invalidateQueries({ queryKey: ["module-options"] });
       toast({ title: "Module created" });
       setNewModuleName("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleManagedRoleModule = (permission: AdminPermission) => {
+    setManagedRoleModules((prev) =>
+      prev.includes(permission)
+        ? prev.filter((entry) => entry !== permission)
+        : [...prev, permission],
+    );
+  };
+
+  const saveRolePermissions = useMutation({
+    mutationFn: async () => {
+      if (!manageRoleKey) throw new Error("Select a role first.");
+      if (manageRoleKey === "super_admin") {
+        throw new Error("Super Admin has full access and cannot be customized.");
+      }
+
+      const { error: clearError } = await supabase
+        .from("role_module_permissions")
+        .delete()
+        .eq("role_key", manageRoleKey);
+      if (clearError) throw clearError;
+
+      if (managedRoleModules.length > 0) {
+        const { error: insertError } = await supabase
+          .from("role_module_permissions")
+          .insert(
+            managedRoleModules.map((moduleKey) => ({
+              role_key: manageRoleKey,
+              module_key: moduleKey,
+            })),
+          );
+        if (insertError) throw insertError;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["role-module-permissions"] });
+      queryClient.invalidateQueries({
+        queryKey: ["role-module-permissions-manage", manageRoleKey],
+      });
+      toast({ title: "Role permissions updated" });
     },
     onError: (error: Error) => {
       toast({
@@ -820,6 +867,68 @@ export function AdminUsersManager() {
                 Create Module
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {canManageUsers && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Role Permission Manager</CardTitle>
+            <CardDescription>
+              Select a role and manage which modules it can access.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="max-w-sm space-y-2">
+              <Label>Role</Label>
+              <Select value={manageRoleKey} onValueChange={setManageRoleKey}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roleOptions.map((roleOption) => (
+                    <SelectItem
+                      key={roleOption.role_key}
+                      value={roleOption.role_key}
+                    >
+                      {roleOption.role_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {(moduleOptions.length > 0
+                ? moduleOptions.map((m) => m.module_key)
+                : ALL_PERMISSIONS
+              ).map((permission) => (
+                <label key={permission} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={managedRoleModules.includes(permission)}
+                    onCheckedChange={() => toggleManagedRoleModule(permission)}
+                    disabled={manageRoleKey === "super_admin"}
+                  />
+                  {moduleOptions.find((m) => m.module_key === permission)
+                    ?.module_name || PERMISSION_LABELS[permission] || permission}
+                </label>
+              ))}
+            </div>
+
+            <Button
+              onClick={() => saveRolePermissions.mutate()}
+              disabled={
+                !manageRoleKey ||
+                manageRoleKey === "super_admin" ||
+                saveRolePermissions.isPending
+              }
+            >
+              {saveRolePermissions.isPending && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Save Role Permissions
+            </Button>
           </CardContent>
         </Card>
       )}

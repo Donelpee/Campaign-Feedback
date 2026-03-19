@@ -35,28 +35,25 @@ export const PERMISSION_LABELS: Record<string, string> = {
 export function usePermissions() {
   const { user, bypassAuth, isLoading: isAuthLoading } = useAuth();
 
-  const { data: userRole, isLoading: isRoleLoading } = useQuery({
+  const { data: userRoles = [], isLoading: isRoleLoading } = useQuery({
     queryKey: ["user-role", user?.id],
     queryFn: async () => {
-      if (!user?.id) return null;
-      const { data } = await supabase
+      if (!user?.id) return [] as string[];
+      const { data, error } = await supabase
         .from("user_roles")
         .select("role")
-        .eq("user_id", user.id)
-        .in("role", ["admin", "super_admin"]);
-      if (data && data.length > 0) {
-        // Return highest role
-        return data.some((r) => r.role === "super_admin")
-          ? "super_admin"
-          : "admin";
+        .eq("user_id", user.id);
+      if (error) {
+        console.error("Error fetching roles:", error);
+        return [] as string[];
       }
-      return null;
+      return (data || []).map((row) => row.role as string);
     },
     enabled: !!user?.id && !bypassAuth,
   });
 
-  const isSuperAdmin = bypassAuth || userRole === "super_admin";
-  const isAdminRole = userRole === "admin" || userRole === "super_admin";
+  const isSuperAdmin = bypassAuth || userRoles.includes("super_admin");
+  const isAdminRole = userRoles.length > 0;
 
   const { data: permissions = [], isLoading: isPermissionsLoading } = useQuery({
     queryKey: ["user-permissions", user?.id],
