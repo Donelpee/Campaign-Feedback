@@ -127,14 +127,24 @@ export function AdminUsersManager() {
 
   const getFunctionErrorMessage = async (error: unknown) => {
     const fallback = error instanceof Error ? error.message : "Request failed";
-    const withContext = error as { context?: Response };
+    const withContext = error as { context?: Response; name?: string };
     if (!withContext?.context) return fallback;
     try {
-      const payload = (await withContext.context.json()) as {
-        error?: string;
-        details?: string;
-      };
-      return payload.error || payload.details || fallback;
+      const status = withContext.context.status;
+      const raw = await withContext.context.text();
+      if (!raw) return `${fallback} (status ${status})`;
+      try {
+        const payload = JSON.parse(raw) as {
+          error?: string;
+          details?: string;
+          message?: string;
+        };
+        const message =
+          payload.error || payload.details || payload.message || raw;
+        return `${message} (status ${status})`;
+      } catch {
+        return `${raw} (status ${status})`;
+      }
     } catch {
       return fallback;
     }

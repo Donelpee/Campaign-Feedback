@@ -89,6 +89,10 @@ async function createAuthUser(params: {
   return userId;
 }
 
+function escapePostgrestValue(value: string): string {
+  return encodeURIComponent(value.replace(/,/g, "\\,"));
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (request.method !== "POST") return jsonResponse(405, { error: "Method not allowed" });
@@ -125,6 +129,14 @@ Deno.serve(async (request) => {
     const username = String(payload?.username || invite.username || "")
       .trim();
     if (!username) return jsonResponse(400, { error: "Username is required." });
+
+    const existingUsername = await postgrest<Array<{ user_id: string }>>(
+      `profiles?username=ilike.${escapePostgrestValue(username)}&select=user_id&limit=1`,
+      { method: "GET" },
+    );
+    if (existingUsername.length > 0) {
+      return jsonResponse(409, { error: "This username is already in use." });
+    }
 
     const userId = await createAuthUser({
       email: invite.invite_email,

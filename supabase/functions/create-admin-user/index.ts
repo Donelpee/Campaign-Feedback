@@ -187,7 +187,7 @@ Deno.serve(async (request) => {
     }
 
     const existingUsername = await postgrest<Array<{ user_id: string }>>(
-      `profiles?username=eq.${escapePostgrestValue(username)}&select=user_id&limit=1`,
+      `profiles?username=ilike.${escapePostgrestValue(username)}&select=user_id&limit=1`,
       { method: "GET" },
     );
     if (existingUsername.length > 0) {
