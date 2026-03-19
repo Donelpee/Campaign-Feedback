@@ -1,1 +1,7 @@
-project_id = "jiymbxfscpkkgxgjqgaj"
+project_id = "lefraypzzfbowacswwls"
+
+[functions.create-admin-user]
+verify_jwt = false
+
+[functions.invite-admin-user]
+verify_jwt = false
