@@ -370,6 +370,73 @@ export function AdminUsersManager() {
         throw new Error("Only Super Admin can assign Super Admin role.");
       }
 
+      const assignAccessToExistingProfile = async (targetUserId: string) => {
+        const { data: existingRoles, error: existingRolesError } = await supabase
+          .from("user_roles")
+          .select("id, role")
+          .eq("user_id", targetUserId)
+          .returns<Array<{ id: string; role: AppRole }>>();
+        if (existingRolesError) throw existingRolesError;
+
+        // Keep idempotent behavior for already-managed users.
+        if ((existingRoles || []).length > 0) {
+          return {
+            invited: false as const,
+            created: false as const,
+            existed: true as const,
+            assigned: false as const,
+          };
+        }
+
+        const { error: insertRoleError } = await supabase
+          .from("user_roles")
+          .insert({ user_id: targetUserId, role });
+        if (insertRoleError) throw insertRoleError;
+
+        const { error: clearPermsError } = await supabase
+          .from("user_module_permissions")
+          .delete()
+          .eq("user_id", targetUserId);
+        if (clearPermsError) throw clearPermsError;
+
+        if (role !== "super_admin" && permissions.length > 0) {
+          const { error: insertPermsError } = await supabase
+            .from("user_module_permissions")
+            .insert(
+              permissions.map((permission) => ({
+                user_id: targetUserId,
+                module_key: permission,
+              })),
+            );
+          if (insertPermsError) throw insertPermsError;
+        }
+
+        const { error: clearCompanyPermsError } = await supabase
+          .from("user_company_permissions")
+          .delete()
+          .eq("user_id", targetUserId);
+        if (clearCompanyPermsError) throw clearCompanyPermsError;
+
+        if (role !== "super_admin" && companyIds.length > 0) {
+          const { error: insertCompanyPermsError } = await supabase
+            .from("user_company_permissions")
+            .insert(
+              companyIds.map((companyId) => ({
+                user_id: targetUserId,
+                company_id: companyId,
+              })),
+            );
+          if (insertCompanyPermsError) throw insertCompanyPermsError;
+        }
+
+        return {
+          invited: false as const,
+          created: false as const,
+          existed: false as const,
+          assigned: true as const,
+        };
+      };
+
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("user_id")
@@ -378,11 +445,7 @@ export function AdminUsersManager() {
       if (profileError) throw profileError;
 
       if (profile) {
-        return {
-          invited: false as const,
-          created: false as const,
-          existed: true as const,
-        };
+        return assignAccessToExistingProfile(profile.user_id);
       }
 
       if (method === "credentials" && !profile) {
@@ -397,7 +460,12 @@ export function AdminUsersManager() {
           permissions,
           companyIds,
         });
-        return { invited: false as const, created: true as const };
+        return {
+          invited: false as const,
+          created: true as const,
+          existed: false as const,
+          assigned: false as const,
+        };
       }
 
       if (!profile) {
@@ -411,6 +479,7 @@ export function AdminUsersManager() {
           invited: true as const,
           created: false as const,
           existed: false as const,
+          assigned: false as const,
         };
       }
 
@@ -418,11 +487,17 @@ export function AdminUsersManager() {
         invited: false as const,
         created: false as const,
         existed: false as const,
+        assigned: false as const,
       };
     },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["admin-users"] });
-      if (result.existed) {
+      if (result.assigned) {
+        toast({
+          title: "Access assigned",
+          description: "Role and permissions were assigned to the existing user.",
+        });
+      } else if (result.existed) {
         toast({
           title: "User already exists",
           description: "No changes were made. You can edit access from the users table.",
