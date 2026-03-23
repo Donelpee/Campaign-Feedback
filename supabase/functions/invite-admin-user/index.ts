@@ -95,6 +95,33 @@ async function getCallerPrivileges(callerId: string) {
   return { isSuperAdmin };
 }
 
+async function getCallerTenantId(callerId: string): Promise<string> {
+  const rows = await postgrest<Array<{ tenant_id: string | null }>>(
+    `profiles?user_id=eq.${callerId}&select=tenant_id&limit=1`,
+    { method: "GET" },
+  );
+  const tenantId = rows[0]?.tenant_id;
+  if (!tenantId) {
+    throw new Error("Caller does not have a tenant assigned.");
+  }
+  return tenantId;
+}
+
+async function validateCompanyIdsForTenant(
+  companyIds: string[],
+  tenantId: string,
+): Promise<void> {
+  if (companyIds.length === 0) return;
+  const encoded = companyIds.join(",");
+  const rows = await postgrest<Array<{ id: string }>>(
+    `companies?id=in.(${encoded})&tenant_id=eq.${tenantId}&select=id`,
+    { method: "GET" },
+  );
+  if (rows.length !== companyIds.length) {
+    throw new Error("One or more selected companies are outside your tenant.");
+  }
+}
+
 async function hashToken(token: string): Promise<string> {
   const encoder = new TextEncoder();
   const bytes = encoder.encode(token);
@@ -148,6 +175,7 @@ Deno.serve(async (request) => {
   try {
     const callerId = await fetchCallerId(request);
     const privileges = await getCallerPrivileges(callerId);
+    const callerTenantId = await getCallerTenantId(callerId);
     const payload = (await request.json()) as InvitePayload;
 
     const email = String(payload?.email || "").trim().toLowerCase();
@@ -158,6 +186,7 @@ Deno.serve(async (request) => {
     const companyIds = Array.isArray(payload?.companyIds)
       ? payload.companyIds.filter((id) => typeof id === "string" && id.length > 0)
       : [];
+    await validateCompanyIdsForTenant(companyIds, callerTenantId);
     if (!email) return jsonResponse(400, { error: "Email is required." });
     if (role === "super_admin" && !privileges.isSuperAdmin) {
       return jsonResponse(403, { error: "Only Super Admin can assign Super Admin role." });
@@ -170,6 +199,14 @@ Deno.serve(async (request) => {
 
     if (existingProfiles.length > 0) {
       const userId = existingProfiles[0].user_id;
+      await postgrest(
+        `profiles?user_id=eq.${userId}`,
+        {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ tenant_id: callerTenantId }),
+        },
+      );
       await postgrest(
         `user_roles?user_id=eq.${userId}`,
         { method: "DELETE", headers: { Prefer: "return=minimal" } },
@@ -233,6 +270,7 @@ Deno.serve(async (request) => {
             role_key: role,
             module_keys: moduleKeys,
             company_ids: companyIds,
+            tenant_id: callerTenantId,
             expires_at: expiresAt,
             created_by: callerId,
           },

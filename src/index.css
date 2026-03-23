@@ -740,6 +740,16 @@
       transform-origin: center bottom;
     }
 
+    .cw-cowboy-happy {
+      animation: cw-cowboy-happy 1.05s ease-in-out infinite;
+      transform-origin: center bottom;
+    }
+
+    .cw-cowboy-waiting {
+      animation: cw-cowboy-waiting 2.6s ease-in-out infinite;
+      transform-origin: center bottom;
+    }
+
     .cw-gradient-drift {
       animation: cw-gradient-drift 14s ease-in-out infinite alternate;
       background-size: 125% 125%;
@@ -986,6 +996,32 @@
   }
   75% {
     transform: translateX(2px) rotate(1.4deg);
+  }
+}
+
+@keyframes cw-cowboy-happy {
+  0%,
+  100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  30% {
+    transform: translateY(-6px) scale(1.025) rotate(-1.5deg);
+  }
+  65% {
+    transform: translateY(-2px) scale(1.015) rotate(1.5deg);
+  }
+}
+
+@keyframes cw-cowboy-waiting {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  35% {
+    transform: translateY(-4px) rotate(-0.8deg) scale(1.01);
+  }
+  70% {
+    transform: translateY(-2px) rotate(0.8deg) scale(1.005);
   }
 }
 

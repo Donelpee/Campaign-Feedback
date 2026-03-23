@@ -112,10 +112,11 @@ Deno.serve(async (request) => {
       username: string | null;
       module_keys: string[];
       company_ids: string[];
+      tenant_id: string;
       expires_at: string;
       used_at: string | null;
     }>>(
-      `onboarding_invites?token_hash=eq.${tokenHash}&select=id,invite_email,role_key,username,module_keys,company_ids,expires_at,used_at&limit=1`,
+      `onboarding_invites?token_hash=eq.${tokenHash}&select=id,invite_email,role_key,username,module_keys,company_ids,tenant_id,expires_at,used_at&limit=1`,
       { method: "GET" },
     );
 
@@ -143,6 +144,15 @@ Deno.serve(async (request) => {
       username,
       password,
     });
+
+    await postgrest(
+      `profiles?user_id=eq.${userId}`,
+      {
+        method: "PATCH",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ tenant_id: invite.tenant_id }),
+      },
+    );
 
     await postgrest(
       "user_roles",

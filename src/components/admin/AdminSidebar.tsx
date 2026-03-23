@@ -90,10 +90,14 @@ export function AdminSidebar({
   const location = useLocation();
   const { user, signOut } = useAuth();
   const { hasPermission, isSuperAdmin } = usePermissions();
+  const canAccessResponses = hasPermission("responses") || hasPermission("campaigns");
 
-  const visibleMenu = menuItems.filter((item) =>
-    hasPermission(item.permission),
-  );
+  const visibleMenu = menuItems.filter((item) => {
+    if (item.url === "/admin/responses") {
+      return canAccessResponses;
+    }
+    return hasPermission(item.permission);
+  });
   const visibleManagement = managementItems.filter((item) =>
     hasPermission(item.permission),
   );
