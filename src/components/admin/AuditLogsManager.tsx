@@ -68,6 +68,14 @@ function getChangedFields(metadata: Record<string, unknown>) {
     : [];
 }
 
+function formatUserOptionLabel(option: AuditLogUserOption) {
+  if (!option.user_email || option.user_email === option.user_name) {
+    return option.user_name;
+  }
+
+  return `${option.user_name} (${option.user_email})`;
+}
+
 export function AuditLogsManager() {
   const { toast } = useToast();
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
@@ -217,14 +225,14 @@ export function AuditLogsManager() {
                   <SelectTrigger>
                     <SelectValue placeholder="All users" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All users</SelectItem>
-                    {userOptions.map((option) => (
-                      <SelectItem key={option.user_id} value={option.user_id}>
-                        {option.user_name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                    <SelectContent>
+                      <SelectItem value="all">All users</SelectItem>
+                      {userOptions.map((option) => (
+                        <SelectItem key={option.user_id} value={option.user_id}>
+                          {formatUserOptionLabel(option)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                 </Select>
 
                 <Select
