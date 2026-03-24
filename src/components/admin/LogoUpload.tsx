@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { Upload, Loader2, X, Building2 } from "lucide-react";
 
 interface LogoUploadProps {
@@ -17,6 +18,7 @@ export function LogoUpload({
   onUpload,
 }: LogoUploadProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -49,10 +51,25 @@ export function LogoUpload({
     setIsUploading(true);
 
     try {
+      if (!user?.id) {
+        throw new Error("You must be signed in to upload a company logo.");
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("tenant_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+      if (!profile?.tenant_id) {
+        throw new Error("Your account is missing a workspace assignment.");
+      }
+
       // Generate unique filename
-      const fileExt = file.name.split(".").pop();
+      const fileExt = file.name.split(".").pop()?.toLowerCase() || "png";
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
-      const filePath = `logos/${fileName}`;
+      const filePath = `${profile.tenant_id}/logos/${fileName}`;
 
       // Upload to storage
       const { error: uploadError } = await supabase.storage
@@ -74,10 +91,14 @@ export function LogoUpload({
       });
     } catch (error) {
       console.error("Error uploading logo:", error);
+      const description =
+        error instanceof Error
+          ? error.message
+          : "Failed to upload logo. Please try again.";
       toast({
         variant: "destructive",
         title: "Upload failed",
-        description: "Failed to upload logo. Please try again.",
+        description,
       });
     } finally {
       setIsUploading(false);
