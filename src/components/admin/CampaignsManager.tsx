@@ -149,7 +149,7 @@ export function CampaignsManager({
     }
 
     try {
-      const [campaignsRes, linksRes] = await Promise.all([
+      const [campaignsRes, linksRes, countsRes] = await Promise.all([
         supabase
           .from("campaigns")
           .select("*")
@@ -157,10 +157,12 @@ export function CampaignsManager({
         supabase
           .from("company_campaign_links")
           .select("id, campaign_id, company_id, company:company_id (name, logo_url)"),
+        supabase.rpc("get_campaign_response_counts", {}),
       ]);
 
       if (campaignsRes.error) throw campaignsRes.error;
       if (linksRes.error) throw linksRes.error;
+      if (countsRes.error) throw countsRes.error;
 
       const data = campaignsRes.data || [];
       const links = linksRes.data || [];
@@ -176,13 +178,7 @@ export function CampaignsManager({
         string,
         { companyId: string; companyName: string; logoUrl: string | null }
       > = {};
-      const linkIdsByCampaign: Record<string, string[]> = {};
-
       links.forEach((link) => {
-        if (!linkIdsByCampaign[link.campaign_id]) {
-          linkIdsByCampaign[link.campaign_id] = [];
-        }
-        linkIdsByCampaign[link.campaign_id].push(link.id);
         if (!campaignCompanyMap[link.campaign_id]) {
           campaignCompanyMap[link.campaign_id] = {
             companyId: link.company_id,
@@ -196,29 +192,13 @@ export function CampaignsManager({
         }
       });
 
-      const allLinkIds = Object.values(linkIdsByCampaign).flat();
-      const responseCounts: Record<string, number> = {};
-      if (allLinkIds.length > 0) {
-        const { data: responses, error: responsesError } = await supabase
-          .from("feedback_responses")
-          .select("link_id")
-          .in("link_id", allLinkIds);
-
-        if (responsesError) throw responsesError;
-
-        const campaignByLinkId: Record<string, string> = {};
-        Object.entries(linkIdsByCampaign).forEach(([campaignId, ids]) => {
-          ids.forEach((id) => {
-            campaignByLinkId[id] = campaignId;
-          });
-        });
-
-        (responses || []).forEach((row) => {
-          const campaignId = campaignByLinkId[row.link_id];
-          if (!campaignId) return;
-          responseCounts[campaignId] = (responseCounts[campaignId] || 0) + 1;
-        });
-      }
+      const responseCounts = ((countsRes.data || []) as Array<{
+        campaign_id: string;
+        response_count: number;
+      }>).reduce<Record<string, number>>((acc, row) => {
+        acc[row.campaign_id] = Number(row.response_count || 0);
+        return acc;
+      }, {});
 
       setResponseCountByCampaign(responseCounts);
       setCampaignCompanyById(campaignCompanyMap);

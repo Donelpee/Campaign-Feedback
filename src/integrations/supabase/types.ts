@@ -552,7 +552,49 @@ export type Database = {
     };
     Functions: {
       get_feedback_link_data: { Args: { p_code: string }; Returns: Json };
+      get_feedback_question_infographics: {
+        Args: { p_campaign_id: string; p_company_id?: string | null };
+        Returns: Json;
+      };
+      get_feedback_response_page: {
+        Args: {
+          p_campaign_id?: string | null;
+          p_company_id?: string | null;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: {
+          additional_comments: string | null;
+          answers: Json;
+          campaign_id: string;
+          campaign_name: string;
+          campaign_questions: Json;
+          campaign_type: string;
+          company_id: string;
+          company_logo_url: string | null;
+          company_name: string;
+          created_at: string;
+          id: string;
+          improvement_areas: string[];
+          link_id: string;
+          overall_satisfaction: number;
+          recommendation_likelihood: number;
+          service_quality: number;
+          total_count: number;
+        }[];
+      };
+      get_feedback_response_summary: {
+        Args: { p_campaign_id?: string | null; p_company_id?: string | null };
+        Returns: Json;
+      };
       get_email_by_username: { Args: { p_username: string }; Returns: string };
+      get_campaign_response_counts: {
+        Args: { p_company_id?: string | null };
+        Returns: {
+          campaign_id: string;
+          response_count: number;
+        }[];
+      };
       has_permission: {
         Args: {
           _permission: string;

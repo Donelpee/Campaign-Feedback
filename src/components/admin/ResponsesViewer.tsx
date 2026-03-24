@@ -77,7 +77,6 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import type { CampaignQuestion } from "@/lib/supabase-types";
 
 interface LinkWithRelations {
   id: string;
@@ -112,7 +111,7 @@ interface RawLinkRow {
   campaign: Campaign;
 }
 
-interface RawResponseRow {
+interface ResponsePageRow {
   id: string;
   link_id: string;
   overall_satisfaction: number;
@@ -122,10 +121,14 @@ interface RawResponseRow {
   additional_comments: string | null;
   answers?: Record<string, unknown>;
   created_at: string;
-  link: {
-    company: Company;
-    campaign: Campaign;
-  } | null;
+  company_id: string;
+  company_name: string;
+  company_logo_url: string | null;
+  campaign_id: string;
+  campaign_name: string;
+  campaign_type: string;
+  campaign_questions: Campaign["questions"];
+  total_count: number;
 }
 
 type CampaignWithCompany = Campaign & { companyName?: string };
@@ -134,6 +137,34 @@ interface ViewerSettings {
   compactView: boolean;
   showResponseTimestamps: boolean;
 }
+
+interface AnalyticsSummary {
+  totalResponses: number;
+  viewsInScope: number;
+  responseRate: number;
+  avgOverall: number;
+  avgService: number;
+  avgCompletion: number;
+}
+
+interface CampaignSummary {
+  campaignId: string;
+  campaignName: string;
+  companyName: string;
+  responses: number;
+  views: number;
+  responseRate: number;
+  completionRate: number;
+}
+
+interface QuestionInfographic {
+  id: string;
+  question: string;
+  type: string;
+  chartData: Array<{ label: string; value: number }>;
+}
+
+const RESPONSE_PAGE_SIZE = 50;
 
 const questionTypeLabels: Record<string, string> = {
   rating: "Rating",
@@ -281,6 +312,33 @@ function forecastNext7Days(series: number[]): { next7: number; dailyAverage: num
   return { next7, dailyAverage: next7 / 7 };
 }
 
+function mapResponsePageRow(row: ResponsePageRow): ResponseWithDetails {
+  return {
+    id: row.id,
+    link_id: row.link_id,
+    overall_satisfaction: row.overall_satisfaction,
+    service_quality: row.service_quality,
+    recommendation_likelihood: row.recommendation_likelihood,
+    improvement_areas: row.improvement_areas || [],
+    additional_comments: row.additional_comments,
+    answers: (row.answers || {}) as Record<string, unknown>,
+    created_at: row.created_at,
+    link: {
+      company: {
+        id: row.company_id,
+        name: row.company_name,
+        logo_url: row.company_logo_url,
+      } as Company,
+      campaign: {
+        id: row.campaign_id,
+        name: row.campaign_name,
+        campaign_type: row.campaign_type as Campaign["campaign_type"],
+        questions: (row.campaign_questions || []) as Campaign["questions"],
+      } as Campaign,
+    },
+  };
+}
+
 export function ResponsesViewer() {
   const { toast } = useToast();
   const { user } = useAuth();
@@ -294,6 +352,18 @@ export function ResponsesViewer() {
   const [filterCampaign, setFilterCampaign] = useState<string>("all");
   const [campaignSearch, setCampaignSearch] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalResponsesCount, setTotalResponsesCount] = useState(0);
+  const [analytics, setAnalytics] = useState<AnalyticsSummary>({
+    totalResponses: 0,
+    viewsInScope: 0,
+    responseRate: 0,
+    avgOverall: 0,
+    avgService: 0,
+    avgCompletion: 0,
+  });
+  const [campaignSummaries, setCampaignSummaries] = useState<CampaignSummary[]>([]);
+  const [questionInfographics, setQuestionInfographics] = useState<QuestionInfographic[]>([]);
   const [viewerSettings, setViewerSettings] = useState<ViewerSettings>({
     compactView: false,
     showResponseTimestamps: true,
@@ -323,13 +393,21 @@ export function ResponsesViewer() {
 
   const loadData = useCallback(async () => {
     try {
-      const [responsesRes, companiesRes, linksRes] = await Promise.all([
-        supabase
-          .from("feedback_responses")
-          .select(
-            `*, link:link_id ( company:company_id (*), campaign:campaign_id (*) )`,
-          )
-          .order("created_at", { ascending: false }),
+      const companyId = filterCompany === "all" ? null : filterCompany;
+      const campaignId = filterCampaign === "all" ? null : filterCampaign;
+      const offset = (currentPage - 1) * RESPONSE_PAGE_SIZE;
+
+      const [responsesRes, summaryRes, companiesRes, linksRes] = await Promise.all([
+        supabase.rpc("get_feedback_response_page", {
+          p_company_id: companyId,
+          p_campaign_id: campaignId,
+          p_limit: RESPONSE_PAGE_SIZE,
+          p_offset: offset,
+        }),
+        supabase.rpc("get_feedback_response_summary", {
+          p_company_id: companyId,
+          p_campaign_id: campaignId,
+        }),
         supabase.from("companies").select("*").order("name"),
         supabase
           .from("company_campaign_links")
@@ -340,22 +418,29 @@ export function ResponsesViewer() {
       ]);
 
       if (responsesRes.error) throw responsesRes.error;
+      if (summaryRes.error) throw summaryRes.error;
       if (companiesRes.error) throw companiesRes.error;
       if (linksRes.error) throw linksRes.error;
 
-      const mappedResponses: ResponseWithDetails[] = (
-        (responsesRes.data || []) as RawResponseRow[]
-      )
-        .filter((row) => !!row.link?.company && !!row.link?.campaign)
-        .map((row) => ({
-          ...row,
-          link: {
-            company: row.link!.company,
-            campaign: row.link!.campaign,
-          },
-        }));
+      const pageRows = (responsesRes.data || []) as ResponsePageRow[];
+      const summaryData = (summaryRes.data || {}) as {
+        analytics?: Partial<AnalyticsSummary>;
+        campaigns?: CampaignSummary[];
+      };
 
-      setResponses(mappedResponses);
+      const nextAnalytics = {
+        totalResponses: Number(summaryData.analytics?.totalResponses || 0),
+        viewsInScope: Number(summaryData.analytics?.viewsInScope || 0),
+        responseRate: Number(summaryData.analytics?.responseRate || 0),
+        avgOverall: Number(summaryData.analytics?.avgOverall || 0),
+        avgService: Number(summaryData.analytics?.avgService || 0),
+        avgCompletion: Number(summaryData.analytics?.avgCompletion || 0),
+      };
+
+      setResponses(pageRows.map(mapResponsePageRow));
+      setTotalResponsesCount(nextAnalytics.totalResponses);
+      setAnalytics(nextAnalytics);
+      setCampaignSummaries((summaryData.campaigns || []) as CampaignSummary[]);
       setCompanies((companiesRes.data || []) as Company[]);
       setLinks(
         ((linksRes.data || []) as RawLinkRow[]).map((row) => ({
@@ -383,7 +468,7 @@ export function ResponsesViewer() {
     } finally {
       setIsLoading(false);
     }
-  }, [toast]);
+  }, [currentPage, filterCampaign, filterCompany, toast]);
 
   useEffect(() => {
     loadViewerSettings();
@@ -414,6 +499,18 @@ export function ResponsesViewer() {
     setCampaignSearch("");
   }, [filterCompany]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+    setSelectedResponse(null);
+  }, [filterCompany, filterCampaign]);
+
+  useEffect(() => {
+    const nextTotalPages = Math.max(1, Math.ceil(totalResponsesCount / RESPONSE_PAGE_SIZE));
+    if (currentPage > nextTotalPages) {
+      setCurrentPage(nextTotalPages);
+    }
+  }, [currentPage, totalResponsesCount]);
+
   // Campaigns for the selected company (deduplicated)
   const campaignsForCompany = useMemo(() => {
     const filtered =
@@ -438,65 +535,7 @@ export function ResponsesViewer() {
     return campaignsForCompany.filter((c) => c.name.toLowerCase().includes(q));
   }, [campaignsForCompany, campaignSearch]);
 
-  const filteredResponses = responses.filter((r) => {
-    if (filterCompany !== "all" && r.link.company.id !== filterCompany)
-      return false;
-    if (filterCampaign !== "all" && r.link.campaign.id !== filterCampaign)
-      return false;
-    return true;
-  });
-
-  const analytics = useMemo(() => {
-    const totalResponses = filteredResponses.length;
-    const viewsInScope = links
-      .filter((link) => {
-        if (filterCompany !== "all" && link.company_id !== filterCompany) return false;
-        if (filterCampaign !== "all" && link.campaign_id !== filterCampaign) return false;
-        return true;
-      })
-      .reduce((sum, link) => sum + (link.access_count || 0), 0);
-
-    const responseRate = viewsInScope > 0 ? (totalResponses / viewsInScope) * 100 : 0;
-    const avgOverall =
-      totalResponses > 0
-        ? filteredResponses.reduce((sum, item) => sum + item.overall_satisfaction, 0) /
-          totalResponses
-        : 0;
-    const avgService =
-      totalResponses > 0
-        ? filteredResponses.reduce((sum, item) => sum + item.service_quality, 0) /
-          totalResponses
-        : 0;
-
-    const avgCompletion = (() => {
-      let total = 0;
-      let count = 0;
-      filteredResponses.forEach((response) => {
-        const questions = response.link.campaign.questions || [];
-        if (questions.length === 0) return;
-        const answers = (response.answers || {}) as Record<string, unknown>;
-        const answered = questions.filter((question) => {
-          const value = answers[question.id];
-          if (value === null || value === undefined) return false;
-          if (Array.isArray(value)) return value.length > 0;
-          if (typeof value === "string") return value.trim().length > 0;
-          return true;
-        }).length;
-        total += (answered / questions.length) * 100;
-        count += 1;
-      });
-      return count > 0 ? total / count : 0;
-    })();
-
-    return {
-      totalResponses,
-      viewsInScope,
-      responseRate,
-      avgOverall,
-      avgService,
-      avgCompletion,
-    };
-  }, [filterCampaign, filterCompany, filteredResponses, links]);
+  const filteredResponses = responses;
 
   const trendData = useMemo(() => {
     const map = new Map<string, number>();
@@ -518,17 +557,29 @@ export function ResponsesViewer() {
     }));
   }, [filteredResponses]);
 
-  const campaignVolumeData = useMemo(() => {
-    const map = new Map<string, number>();
-    filteredResponses.forEach((response) => {
-      const name = response.link.campaign.name;
-      map.set(name, (map.get(name) || 0) + 1);
-    });
-    return Array.from(map.entries())
-      .map(([name, responses]) => ({ name, responses }))
-      .sort((a, b) => b.responses - a.responses)
-      .slice(0, 8);
-  }, [filteredResponses]);
+  const campaignVolumeData = useMemo(
+    () =>
+      campaignSummaries
+        .map((campaign) => ({
+          name: campaign.campaignName,
+          responses: campaign.responses,
+        }))
+        .sort((a, b) => b.responses - a.responses)
+        .slice(0, 8),
+    [campaignSummaries],
+  );
+
+  const responseCountByCampaign = useMemo(
+    () =>
+      new Map(
+        campaignSummaries.map((campaign) => [campaign.campaignId, campaign.responses]),
+      ),
+    [campaignSummaries],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(totalResponsesCount / RESPONSE_PAGE_SIZE));
+  const pageStart = totalResponsesCount === 0 ? 0 : (currentPage - 1) * RESPONSE_PAGE_SIZE + 1;
+  const pageEnd = Math.min(currentPage * RESPONSE_PAGE_SIZE, totalResponsesCount);
 
   const periodDelta = useMemo(() => {
     const now = new Date();
@@ -775,8 +826,34 @@ export function ResponsesViewer() {
     sentimentInsight.total,
   ]);
 
+  const loadAllResponsesForExport = useCallback(async () => {
+    const exportRows: ResponseWithDetails[] = [];
+    let offset = 0;
+    let totalCount = 0;
+
+    do {
+      const { data, error } = await supabase.rpc("get_feedback_response_page", {
+        p_company_id: filterCompany === "all" ? null : filterCompany,
+        p_campaign_id: filterCampaign === "all" ? null : filterCampaign,
+        p_limit: 500,
+        p_offset: offset,
+      });
+
+      if (error) throw error;
+
+      const pageRows = (data || []) as ResponsePageRow[];
+      totalCount = pageRows[0]?.total_count || totalCount;
+      exportRows.push(...pageRows.map(mapResponsePageRow));
+      offset += pageRows.length;
+
+      if (pageRows.length === 0) break;
+    } while (offset < totalCount);
+
+    return exportRows;
+  }, [filterCampaign, filterCompany]);
+
   const handleExportCSV = () => {
-    if (filteredResponses.length === 0) {
+    if (totalResponsesCount === 0) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -784,261 +861,124 @@ export function ResponsesViewer() {
       });
       return;
     }
-    const headers = [
-      "Company",
-      "Campaign",
-      "Overall Satisfaction",
-      "Service Quality",
-      "Recommendation",
-      "Improvement Areas",
-      "Comments",
-      "Date",
-    ];
-    const rows = filteredResponses.map((r) => {
-      const metrics = getDisplayMetrics(r);
-      const shownAreas =
-        metrics.dynamicAreas.length > 0
-          ? metrics.dynamicAreas
-          : r.improvement_areas || [];
-      return [
-        r.link.company.name,
-        r.link.campaign.name,
-        metrics.satisfactionValue !== null
-          ? `${metrics.satisfactionValue}/${metrics.satisfactionMax}`
-          : `${r.overall_satisfaction}/10`,
-        metrics.qualityValue !== null
-          ? `${metrics.qualityValue}/${metrics.qualityMax}`
-          : `${r.service_quality}/5`,
-        metrics.npsValue !== null
-          ? `${Math.round(metrics.npsValue)}/10`
-          : getLikertLabel(r.recommendation_likelihood),
-        shownAreas.map((a) => areaLabels[a] || a).join("; "),
-        r.additional_comments || "",
-        new Date(r.created_at).toLocaleString(),
-      ];
-    });
-
-    const campaignRows = campaignVolumeData.map((item) => {
-      const campaignLinks = links.filter((l) => l.campaign.name === item.name);
-      const views = campaignLinks.reduce((sum, l) => sum + (l.access_count || 0), 0);
-      const completionCandidates = filteredResponses.filter(
-        (response) => response.link.campaign.name === item.name,
-      );
-      const completion =
-        completionCandidates.length > 0
-          ? completionCandidates.reduce((sum, response) => {
-              const questions = response.link.campaign.questions || [];
-              if (questions.length === 0) return sum;
-              const answerMap = (response.answers || {}) as Record<string, unknown>;
-              const answered = questions.filter((q) => {
-                const value = answerMap[q.id];
-                if (value === null || value === undefined) return false;
-                if (Array.isArray(value)) return value.length > 0;
-                if (typeof value === "string") return value.trim().length > 0;
-                return true;
-              }).length;
-              return sum + (answered / questions.length) * 100;
-            }, 0) / completionCandidates.length
-          : 0;
-      const rate = views > 0 ? (item.responses / views) * 100 : 0;
-      return [item.name, item.responses, views, rate.toFixed(1), completion.toFixed(1)];
-    });
-
-    const questionRows: Array<(string | number)[]> = [];
-    const groupedCampaigns = [...new Set(filteredResponses.map((r) => r.link.campaign.name))];
-    groupedCampaigns.forEach((campaignName) => {
-      const campaignResponses = filteredResponses.filter(
-        (r) => r.link.campaign.name === campaignName,
-      );
-      const questionDefs = campaignResponses[0]?.link.campaign.questions || [];
-      questionDefs.forEach((question) => {
-        const dist = new Map<string, number>();
-        campaignResponses.forEach((response) => {
-          const answer = (response.answers || {})[question.id];
-          if (answer === null || answer === undefined) return;
-          if (question.type === "multiple_choice" && Array.isArray(answer)) {
-            answer.forEach((item) => {
-              const key = String(item);
-              dist.set(key, (dist.get(key) || 0) + 1);
-            });
-            return;
-          }
-          if (question.type === "checkbox_matrix") {
-            if (!answer || typeof answer !== "object" || Array.isArray(answer)) return;
-            Object.values(answer as Record<string, unknown>).forEach((value) => {
-              if (!Array.isArray(value)) return;
-              value.forEach((item) => {
-                const key = String(item);
-                dist.set(key, (dist.get(key) || 0) + 1);
-              });
-            });
-            return;
-          }
-          if (question.type === "radio_matrix") {
-            if (!answer || typeof answer !== "object" || Array.isArray(answer)) return;
-            Object.values(answer as Record<string, unknown>).forEach((value) => {
-              const key = String(value);
-              if (!key.trim()) return;
-              dist.set(key, (dist.get(key) || 0) + 1);
-            });
-            return;
-          }
-          if (question.type === "rank" && Array.isArray(answer)) {
-            answer.forEach((item) => {
-              const key = String(item);
-              if (!key.trim()) return;
-              dist.set(key, (dist.get(key) || 0) + 1);
-            });
-            return;
-          }
-          const key = String(answer);
-          if (!key.trim()) return;
-          dist.set(key, (dist.get(key) || 0) + 1);
+    setIsExporting(true);
+    loadAllResponsesForExport()
+      .then((exportResponses) => {
+        const headers = [
+          "Company",
+          "Campaign",
+          "Overall Satisfaction",
+          "Service Quality",
+          "Recommendation",
+          "Improvement Areas",
+          "Comments",
+          "Date",
+        ];
+        const rows = exportResponses.map((r) => {
+          const metrics = getDisplayMetrics(r);
+          const shownAreas =
+            metrics.dynamicAreas.length > 0
+              ? metrics.dynamicAreas
+              : r.improvement_areas || [];
+          return [
+            r.link.company.name,
+            r.link.campaign.name,
+            metrics.satisfactionValue !== null
+              ? `${metrics.satisfactionValue}/${metrics.satisfactionMax}`
+              : `${r.overall_satisfaction}/10`,
+            metrics.qualityValue !== null
+              ? `${metrics.qualityValue}/${metrics.qualityMax}`
+              : `${r.service_quality}/5`,
+            metrics.npsValue !== null
+              ? `${Math.round(metrics.npsValue)}/10`
+              : getLikertLabel(r.recommendation_likelihood),
+            shownAreas.map((a) => areaLabels[a] || a).join("; "),
+            r.additional_comments || "",
+            new Date(r.created_at).toLocaleString(),
+          ];
         });
-        Array.from(dist.entries()).forEach(([label, count]) => {
-          questionRows.push([
-            campaignName,
-            question.question,
-            question.type,
-            question.type === "single_choice" ||
-            question.type === "multiple_choice" ||
-            question.type === "combobox" ||
-            question.type === "radio_matrix" ||
-            question.type === "checkbox_matrix"
-              ? "pie"
-              : "bar",
-            label,
-            count,
-          ]);
+
+        const campaignRows = campaignSummaries.map((campaign) => [
+          campaign.campaignName,
+          campaign.responses,
+          campaign.views,
+          campaign.responseRate.toFixed(1),
+          campaign.completionRate.toFixed(1),
+        ]);
+
+        const questionRows: Array<(string | number)[]> = [];
+        if (filterCampaign !== "all") {
+          questionInfographics.forEach((question) => {
+            question.chartData.forEach((entry) => {
+              questionRows.push([
+                selectedCampaignName || "Selected Campaign",
+                question.question,
+                question.type,
+                question.type === "single_choice" ||
+                question.type === "multiple_choice" ||
+                question.type === "combobox" ||
+                question.type === "radio_matrix" ||
+                question.type === "checkbox_matrix"
+                  ? "pie"
+                  : "bar",
+                entry.label,
+                entry.value,
+              ]);
+            });
+          });
+        }
+
+        const csv = [
+          ["RAW RESPONSES"],
+          headers,
+          ...rows,
+          [""],
+          ["CAMPAIGN KPI DATA (FOR INFOGRAPHICS)"],
+          ["Campaign", "Responses", "Views", "Response Rate %", "Completion %"],
+          ...campaignRows,
+          [""],
+          ["QUESTION DISTRIBUTION DATA (FOR INFOGRAPHICS)"],
+          ["Campaign", "Question", "Type", "Chart Type", "Answer Option/Value", "Count"],
+          ...questionRows,
+        ]
+          .map((row) =>
+            row
+              .map((cell) => {
+                const str = String(cell);
+                if (str.includes(",") || str.includes('"') || str.includes("\n"))
+                  return `"${str.replace(/"/g, '""')}"`;
+                return str;
+              })
+              .join(","),
+          )
+          .join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `feedback-responses-${new Date().toISOString().split("T")[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast({
+          title: "Success",
+          description: "CSV file downloaded successfully.",
         });
+      })
+      .catch((error) => {
+        console.error("Error exporting CSV:", error);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: "Failed to generate CSV report.",
+        });
+      })
+      .finally(() => {
+        setIsExporting(false);
       });
-    });
-
-    const periodRows: Array<(string | number)>[] =
-      futureReleaseFlags.phase3To5AdvancedExportInsights
-        ? [
-            ["Current 7 Days Responses", periodDelta.currentCount],
-            ["Previous 7 Days Responses", periodDelta.previousCount],
-            ["Delta %", periodDelta.deltaPercent.toFixed(1)],
-          ]
-        : [];
-
-    const benchmarkRows: Array<(string | number)>[] =
-      futureReleaseFlags.phase3To5AdvancedExportInsights && benchmarkInsight
-        ? [
-            ["Selected Campaign Rate %", benchmarkInsight.selectedRate.toFixed(1)],
-            ["Peer Benchmark Rate %", benchmarkInsight.peerRate.toFixed(1)],
-            ["Benchmark Gap %", benchmarkInsight.gap.toFixed(1)],
-          ]
-        : [];
-
-    const sentimentRows: Array<(string | number)>[] =
-      futureReleaseFlags.phase3To5AdvancedExportInsights
-        ? [
-            ["Sentiment Index", sentimentInsight.scoreIndex.toFixed(1)],
-            ["Positive", sentimentInsight.positive],
-            ["Neutral", sentimentInsight.neutral],
-            ["Negative", sentimentInsight.negative],
-          ]
-        : [];
-
-    const forecastRows: Array<(string | number)>[] =
-      futureReleaseFlags.phase3To5AdvancedExportInsights
-        ? [
-            ["Next 7 Days Responses (Forecast)", forecastInsight.next7.toFixed(0)],
-            ["Daily Average Forecast", forecastInsight.dailyAverage.toFixed(1)],
-          ]
-        : [];
-
-    const campaignHealthExportRows = futureReleaseFlags.phase3To5AdvancedExportInsights
-      ? campaignHealthRows.map((row) => [
-          row.campaignName,
-          row.responses,
-          row.views,
-          row.responseRate.toFixed(1),
-          row.completionRate.toFixed(1),
-          row.sentimentIndex.toFixed(1),
-          row.healthScore.toFixed(1),
-          row.risk,
-        ])
-      : [];
-
-    const csv = [
-      ["RAW RESPONSES"],
-      headers,
-      ...rows,
-      [""],
-      ["CAMPAIGN KPI DATA (FOR INFOGRAPHICS)"],
-      ["Campaign", "Responses", "Views", "Response Rate %", "Completion %"],
-      ...campaignRows,
-      [""],
-      ["QUESTION DISTRIBUTION DATA (FOR INFOGRAPHICS)"],
-      ["Campaign", "Question", "Type", "Chart Type", "Answer Option/Value", "Count"],
-      ...questionRows,
-      ...(futureReleaseFlags.phase3To5AdvancedExportInsights
-        ? [
-            [""],
-            ["PERIOD COMPARISON KPI"],
-            ["Metric", "Value"],
-            ...periodRows,
-            [""],
-            ["BENCHMARK KPI"],
-            ["Metric", "Value"],
-            ...(benchmarkRows.length > 0 ? benchmarkRows : [["Select one campaign", "N/A"]]),
-            [""],
-            ["SENTIMENT KPI"],
-            ["Metric", "Value"],
-            ...sentimentRows,
-            [""],
-            ["FORECAST KPI"],
-            ["Metric", "Value"],
-            ...forecastRows,
-            [""],
-            ["CAMPAIGN HEALTH SCORECARD"],
-            [
-              "Campaign",
-              "Responses",
-              "Views",
-              "Response Rate %",
-              "Completion %",
-              "Sentiment Index",
-              "Health Score",
-              "Risk",
-            ],
-            ...campaignHealthExportRows,
-            [""],
-            ["PRIORITIZED RECOMMENDATIONS"],
-            ["Recommendation"],
-            ...recommendations.map((item) => [item]),
-          ]
-        : []),
-    ]
-      .map((row) =>
-        row
-          .map((cell) => {
-            const str = String(cell);
-            if (str.includes(",") || str.includes('"') || str.includes("\n"))
-              return `"${str.replace(/"/g, '""')}"`;
-            return str;
-          })
-          .join(","),
-      )
-      .join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `feedback-responses-${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast({
-      title: "Success",
-      description: "CSV file downloaded successfully.",
-    });
   };
 
   const handleExportExcel = async () => {
-    if (filteredResponses.length === 0) {
+    if (totalResponsesCount === 0) {
       toast({
         variant: "destructive",
         title: "Error",
@@ -1048,7 +988,8 @@ export function ResponsesViewer() {
     }
     setIsExporting(true);
     try {
-      const data = filteredResponses.map((r) => {
+      const exportResponses = await loadAllResponsesForExport();
+      const data = exportResponses.map((r) => {
         const metrics = getDisplayMetrics(r);
         return {
           id: r.id,
@@ -1074,36 +1015,13 @@ export function ResponsesViewer() {
         };
       });
 
-      const metricsByCampaign = campaignVolumeData.map((item) => {
-        const campaignLinks = links.filter((l) => l.campaign.name === item.name);
-        const views = campaignLinks.reduce((sum, l) => sum + (l.access_count || 0), 0);
-        const campaignResponses = filteredResponses.filter(
-          (r) => r.link.campaign.name === item.name,
-        );
-        const completion =
-          campaignResponses.length > 0
-            ? campaignResponses.reduce((sum, response) => {
-                const questions = response.link.campaign.questions || [];
-                if (questions.length === 0) return sum;
-                const answers = (response.answers || {}) as Record<string, unknown>;
-                const answered = questions.filter((q) => {
-                  const value = answers[q.id];
-                  if (value === null || value === undefined) return false;
-                  if (Array.isArray(value)) return value.length > 0;
-                  if (typeof value === "string") return value.trim().length > 0;
-                  return true;
-                }).length;
-                return sum + (answered / questions.length) * 100;
-              }, 0) / campaignResponses.length
-            : 0;
-        return {
-          campaign_name: item.name,
-          responses: item.responses,
-          views,
-          response_rate: views > 0 ? (item.responses / views) * 100 : 0,
-          completion_rate: completion,
-        };
-      });
+      const metricsByCampaign = campaignSummaries.map((campaign) => ({
+        campaign_name: campaign.campaignName,
+        responses: campaign.responses,
+        views: campaign.views,
+        response_rate: campaign.responseRate,
+        completion_rate: campaign.completionRate,
+      }));
 
       await exportToExcel(
         data,
@@ -1256,84 +1174,37 @@ export function ResponsesViewer() {
     return campaignsForCompany.find((campaign) => campaign.id === filterCampaign) || null;
   }, [campaignsForCompany, filterCampaign]);
 
-  const questionInfographics = useMemo(() => {
-    if (!selectedCampaignForInsights) return [];
-    const questions = (selectedCampaignForInsights.questions || []) as CampaignQuestion[];
-    if (questions.length === 0) return [];
-    const scopedResponses = filteredResponses.filter(
-      (response) => response.link.campaign.id === selectedCampaignForInsights.id,
-    );
+  useEffect(() => {
+    let cancelled = false;
 
-    return questions.map((question) => {
-      const dist = new Map<string, number>();
-      const values = scopedResponses.map((response) => (response.answers || {})[question.id]);
-      const answered = values.filter((value) => hasAnswerValue(value));
-
-      if (question.type === "multiple_choice") {
-        answered.forEach((value) => {
-          if (!Array.isArray(value)) return;
-          value.forEach((item) => {
-            const key = String(item).trim();
-            if (!key) return;
-            dist.set(key, (dist.get(key) || 0) + 1);
-          });
-        });
-      } else if (question.type === "checkbox_matrix") {
-        answered.forEach((value) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return;
-          Object.values(value as Record<string, unknown>).forEach((rowValue) => {
-            if (!Array.isArray(rowValue)) return;
-            rowValue.forEach((item) => {
-              const key = String(item).trim();
-              if (!key) return;
-              dist.set(key, (dist.get(key) || 0) + 1);
-            });
-          });
-        });
-      } else if (
-        question.type === "single_choice" ||
-        question.type === "combobox" ||
-        question.type === "rank"
-      ) {
-        answered.forEach((value) => {
-          if (Array.isArray(value)) {
-            value.forEach((item) => {
-              const key = String(item).trim();
-              if (!key) return;
-              dist.set(key, (dist.get(key) || 0) + 1);
-            });
-            return;
-          }
-          const key = String(value).trim();
-          if (!key) return;
-          dist.set(key, (dist.get(key) || 0) + 1);
-        });
-      } else if (question.type === "radio_matrix") {
-        answered.forEach((value) => {
-          if (!value || typeof value !== "object" || Array.isArray(value)) return;
-          Object.values(value as Record<string, unknown>).forEach((rowValue) => {
-            const key = String(rowValue ?? "").trim();
-            if (!key) return;
-            dist.set(key, (dist.get(key) || 0) + 1);
-          });
-        });
-      } else if (question.type === "rating" || question.type === "scale" || question.type === "nps") {
-        answered.forEach((value) => {
-          const num = toNumberOrNull(value);
-          if (num === null) return;
-          const key = String(Math.round(num));
-          dist.set(key, (dist.get(key) || 0) + 1);
-        });
+    const loadQuestionInfographics = async () => {
+      if (!selectedCampaignForInsights) {
+        setQuestionInfographics([]);
+        return;
       }
 
-      return {
-        id: question.id,
-        question: question.question,
-        type: question.type,
-        chartData: Array.from(dist.entries()).map(([label, value]) => ({ label, value })),
-      };
-    });
-  }, [filteredResponses, selectedCampaignForInsights]);
+      const { data, error } = await supabase.rpc("get_feedback_question_infographics", {
+        p_campaign_id: selectedCampaignForInsights.id,
+        p_company_id: filterCompany === "all" ? null : filterCompany,
+      });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error("Error loading question infographics:", error);
+        setQuestionInfographics([]);
+        return;
+      }
+
+      setQuestionInfographics((data || []) as QuestionInfographic[]);
+    };
+
+    loadQuestionInfographics();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filterCompany, selectedCampaignForInsights]);
 
   const formatResponseDate = (dateValue: string) =>
     viewerSettings.showResponseTimestamps
@@ -1435,8 +1306,8 @@ export function ResponsesViewer() {
           <ArrowRight className="h-3 w-3" />
           <FileText className="h-4 w-4" />
           <span>
-            {filteredResponses.length} response
-            {filteredResponses.length !== 1 ? "s" : ""}
+            {totalResponsesCount} response
+            {totalResponsesCount !== 1 ? "s" : ""}
           </span>
         </div>
 
@@ -1861,14 +1732,7 @@ export function ResponsesViewer() {
                 </button>
 
                 {searchedCampaigns.map((campaign) => {
-                  const responseCount = responses.filter((r) => {
-                    if (
-                      filterCompany !== "all" &&
-                      r.link.company.id !== filterCompany
-                    )
-                      return false;
-                    return r.link.campaign.id === campaign.id;
-                  }).length;
+                  const responseCount = responseCountByCampaign.get(campaign.id) || 0;
 
                   return (
                     <button
@@ -1996,25 +1860,25 @@ export function ResponsesViewer() {
             <div>
               <CardTitle>Feedback Responses</CardTitle>
               <CardDescription>
-                {filteredResponses.length} response
-                {filteredResponses.length !== 1 ? "s" : ""}
+                {totalResponsesCount} response
+                {totalResponsesCount !== 1 ? "s" : ""}
                 {filterCompany !== "all" && ` for ${selectedCompanyName}`}
                 {filterCampaign !== "all" && ` - ${selectedCampaignName}`}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                onClick={handleExportCSV}
-                size="sm"
-                disabled={filteredResponses.length === 0}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                CSV
-              </Button>
+                <Button
+                  onClick={handleExportCSV}
+                  size="sm"
+                  disabled={isExporting || totalResponsesCount === 0}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  CSV
+                </Button>
               <Button
                 onClick={handleExportExcel}
                 size="sm"
-                disabled={isExporting || filteredResponses.length === 0}
+                disabled={isExporting || totalResponsesCount === 0}
                 variant="secondary"
               >
                 {isExporting ? (
@@ -2036,7 +1900,7 @@ export function ResponsesViewer() {
                 <FileText className="h-12 w-12 mx-auto text-muted-foreground/50" />
                 <h3 className="mt-4 text-lg font-medium">No responses yet</h3>
                 <p className="text-sm text-muted-foreground">
-                  {responses.length === 0
+                  {totalResponsesCount === 0
                     ? "Responses will appear here once staff submit feedback."
                     : "No responses match the current filters."}
                 </p>
@@ -2151,6 +2015,34 @@ export function ResponsesViewer() {
                     ))}
                   </TableBody>
                 </Table>
+                {totalResponsesCount > RESPONSE_PAGE_SIZE && (
+                  <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {pageStart}-{pageEnd} of {totalResponsesCount} responses
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                        disabled={currentPage === 1 || isLoading}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                        disabled={currentPage >= totalPages || isLoading}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
