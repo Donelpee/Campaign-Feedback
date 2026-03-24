@@ -392,28 +392,21 @@ export default function FeedbackForm() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase.rpc("submit_feedback_response", {
-        p_code: code,
-        p_payload: {
-          overall_satisfaction: derivedPayload.overall_satisfaction,
-          service_quality: derivedPayload.service_quality,
-          recommendation_likelihood: derivedPayload.recommendation_likelihood,
-          improvement_areas: derivedPayload.improvement_areas,
-          additional_comments: derivedPayload.additional_comments || null,
-          answers: derivedPayload.answers,
+      const { error } = await supabase.functions.invoke("submit-feedback-response", {
+        body: {
+          code,
+          payload: {
+            overall_satisfaction: derivedPayload.overall_satisfaction,
+            service_quality: derivedPayload.service_quality,
+            recommendation_likelihood: derivedPayload.recommendation_likelihood,
+            improvement_areas: derivedPayload.improvement_areas,
+            additional_comments: derivedPayload.additional_comments || null,
+            answers: derivedPayload.answers,
+          },
         },
       });
 
       if (error) throw error;
-
-      // Fire-and-forget admin email alerts; do not block respondent success flow.
-      supabase.functions
-        .invoke("send-admin-response-emails", {
-          body: { code },
-        })
-        .catch((emailError) => {
-          console.error("Failed to send admin response emails:", emailError);
-        });
 
       setIsSubmitted(true);
     } catch (err) {

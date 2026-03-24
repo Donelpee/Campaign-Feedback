@@ -18,6 +18,7 @@ interface SendEmailRequest {
 interface LinkRow {
   campaign_id: string | null;
   company_id: string | null;
+  tenant_id: string | null;
   campaign: { name: string } | null;
   company: { name: string } | null;
 }
@@ -31,11 +32,20 @@ interface ProfileRow {
   user_id: string;
   email: string;
   full_name: string | null;
+  tenant_id: string | null;
 }
 
 interface UserSettingsRow {
   user_id: string;
   email_notifications: boolean;
+}
+
+interface AccessContext {
+  callerId: string;
+  tenantId: string | null;
+  isSuperAdmin: boolean;
+  roles: Set<string>;
+  permissions: Set<string>;
 }
 
 function jsonResponse(status: number, body: unknown) {
@@ -69,6 +79,75 @@ async function postgrest<T>(path: string, options: RequestInit): Promise<T> {
 
   if (response.status === 204) return [] as unknown as T;
   return (await response.json()) as T;
+}
+
+async function fetchCallerId(request: Request): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("Missing Supabase anon credentials.");
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) throw new Error("Missing auth token.");
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: "GET",
+    headers: {
+      Authorization: authHeader,
+      apikey: anonKey,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Invalid caller token.");
+  }
+
+  const user = (await response.json()) as { id?: string };
+  if (!user?.id) throw new Error("Unable to resolve caller.");
+  return user.id;
+}
+
+async function getAccessContext(callerId: string): Promise<AccessContext> {
+  const [roles, permissions, profiles] = await Promise.all([
+    postgrest<Array<{ role: string }>>(
+      `user_roles?user_id=eq.${callerId}&select=role`,
+      { method: "GET" },
+    ),
+    postgrest<Array<{ module_key: string }>>(
+      `user_module_permissions?user_id=eq.${callerId}&select=module_key`,
+      { method: "GET" },
+    ),
+    postgrest<Array<{ tenant_id: string | null }>>(
+      `profiles?user_id=eq.${callerId}&select=tenant_id&limit=1`,
+      { method: "GET" },
+    ),
+  ]);
+
+  const roleSet = new Set(roles.map((row) => row.role));
+  const permissionSet = new Set(permissions.map((row) => row.module_key));
+
+  return {
+    callerId,
+    tenantId: profiles[0]?.tenant_id || null,
+    isSuperAdmin: roleSet.has("super_admin"),
+    roles: roleSet,
+    permissions: permissionSet,
+  };
+}
+
+function canSendTenantNotifications(access: AccessContext, tenantId: string | null) {
+  if (access.isSuperAdmin) return true;
+  if (!tenantId || access.tenantId !== tenantId) return false;
+
+  const isAdmin = access.roles.has("admin");
+  const hasRelevantPermission =
+    access.permissions.has("responses") ||
+    access.permissions.has("overview") ||
+    access.permissions.has("links") ||
+    access.permissions.has("campaigns");
+
+  return isAdmin && hasRelevantPermission;
 }
 
 async function sendWithResend(params: {
@@ -115,6 +194,7 @@ Deno.serve(async (request) => {
   }
 
   try {
+    const callerId = await fetchCallerId(request);
     const body = (await request.json()) as SendEmailRequest;
     const code = String(body?.code || "").trim();
     if (!code) {
@@ -122,12 +202,19 @@ Deno.serve(async (request) => {
     }
 
     const links = await postgrest<LinkRow[]>(
-      `company_campaign_links?unique_code=eq.${encodeURIComponent(code)}&select=campaign_id,company_id,campaign:campaign_id(name),company:company_id(name)&limit=1`,
+      `company_campaign_links?unique_code=eq.${encodeURIComponent(code)}&select=campaign_id,company_id,tenant_id,campaign:campaign_id(name),company:company_id(name)&limit=1`,
       { method: "GET" },
     );
     const link = links[0];
     if (!link) {
       return jsonResponse(404, { error: "Feedback link not found." });
+    }
+
+    const access = await getAccessContext(callerId);
+    if (!canSendTenantNotifications(access, link.tenant_id)) {
+      return jsonResponse(403, {
+        error: "You do not have permission to send notifications for this campaign.",
+      });
     }
 
     const roles = await postgrest<RoleRow[]>(
@@ -141,7 +228,7 @@ Deno.serve(async (request) => {
 
     const [profiles, settingsRows] = await Promise.all([
       postgrest<ProfileRow[]>(
-        `profiles?select=user_id,email,full_name&user_id=in.(${adminIds.join(",")})`,
+        `profiles?select=user_id,email,full_name,tenant_id&user_id=in.(${adminIds.join(",")})`,
         { method: "GET" },
       ),
       postgrest<UserSettingsRow[]>(
@@ -162,8 +249,17 @@ Deno.serve(async (request) => {
     let skipped = 0;
 
     for (const profile of profiles) {
+      const roleRows = roles.filter((row) => row.user_id === profile.user_id);
+      const isSuperAdmin = roleRows.some((row) => row.role === "super_admin");
+      const isTenantAdmin = !!link.tenant_id && profile.tenant_id === link.tenant_id;
+
+      if (!isSuperAdmin && !isTenantAdmin) {
+        skipped += 1;
+        continue;
+      }
+
       const wantsEmail = settingsByUser.get(profile.user_id);
-      if (wantsEmail === false) {
+      if (!profile.email || wantsEmail === false) {
         skipped += 1;
         continue;
       }
@@ -205,7 +301,6 @@ Deno.serve(async (request) => {
     console.error("send-admin-response-emails function error:", error);
     return jsonResponse(500, {
       error: "Failed to send admin response notification emails.",
-      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

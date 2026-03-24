@@ -283,7 +283,6 @@ Deno.serve(async (request) => {
     console.error("create-admin-user function error:", error);
     return jsonResponse(500, {
       error: "Failed to create user.",
-      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

@@ -19,6 +19,10 @@ import { cn } from "@/lib/utils";
 import { QuestionPreview } from "./QuestionPreview";
 import { QuickStartSection } from "./QuickStartSection";
 import type { CreationMode } from "./CampaignWizard";
+import {
+  getQuestionValidation,
+  isQuestionClear,
+} from "./wizardValidation";
 
 interface StepQuestionsProps {
   data: WizardData;
@@ -350,7 +354,8 @@ export function StepQuestions({
     questions.find((question) => question.id === selectedQuestionId) || null;
   const requiredCount = questions.filter((question) => question.required).length;
   const optionalCount = questions.length - requiredCount;
-  const clearQuestions = questions.filter((question) => question.question.trim().length >= 8).length;
+  const questionValidation = getQuestionValidation(questions);
+  const clearQuestions = questionValidation.clearQuestionCount;
   const completionScore = questions.length
     ? Math.round((clearQuestions / questions.length) * 100)
     : 0;
@@ -494,7 +499,7 @@ export function StepQuestions({
                     }
                     className={easyMode ? "h-11 text-base" : ""}
                   />
-                  {showValidation && question.question.trim().length < 8 && (
+                  {showValidation && !isQuestionClear(question) && (
                     <p className="text-xs font-medium text-destructive">
                       Write at least 8 characters so this question is clear.
                     </p>
@@ -816,6 +821,12 @@ export function StepQuestions({
       {showValidation && questions.length === 0 && (
         <p className="text-sm font-medium text-destructive">
           Add at least one question before you continue.
+        </p>
+      )}
+
+      {showValidation && questionValidation.warningType === "invalid_questions" && (
+        <p className="text-sm font-medium text-destructive">
+          Make every question at least 8 characters long before you continue.
         </p>
       )}
 

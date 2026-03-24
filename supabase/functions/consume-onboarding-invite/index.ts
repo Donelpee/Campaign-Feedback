@@ -202,7 +202,6 @@ Deno.serve(async (request) => {
     console.error("consume-onboarding-invite error:", error);
     return jsonResponse(500, {
       error: "Failed to complete onboarding.",
-      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

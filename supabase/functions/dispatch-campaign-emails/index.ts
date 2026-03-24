@@ -16,12 +16,26 @@ interface DispatchRequest {
   action: "send_invites" | "send_reminders";
 }
 
+interface CampaignRow {
+  id: string;
+  tenant_id: string | null;
+  created_by_user_id: string | null;
+}
+
 interface RecipientRow {
   id: string;
   email: string;
   status: string;
   reminder_count: number;
   last_sent_at: string | null;
+}
+
+interface AccessContext {
+  callerId: string;
+  tenantId: string | null;
+  isSuperAdmin: boolean;
+  roles: Set<string>;
+  permissions: Set<string>;
 }
 
 function jsonResponse(status: number, body: unknown) {
@@ -58,6 +72,81 @@ async function postgrest<T>(
 
   if (response.status === 204) return [] as unknown as T;
   return (await response.json()) as T;
+}
+
+async function fetchCallerId(request: Request): Promise<string> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!supabaseUrl || !anonKey) {
+    throw new Error("Missing Supabase anon credentials.");
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) throw new Error("Missing auth token.");
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    method: "GET",
+    headers: {
+      Authorization: authHeader,
+      apikey: anonKey,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Invalid caller token.");
+  }
+
+  const user = (await response.json()) as { id?: string };
+  if (!user?.id) throw new Error("Unable to resolve caller.");
+  return user.id;
+}
+
+async function getAccessContext(callerId: string): Promise<AccessContext> {
+  const [roles, permissions, profiles] = await Promise.all([
+    postgrest<Array<{ role: string }>>(
+      `user_roles?user_id=eq.${callerId}&select=role`,
+      { method: "GET" },
+    ),
+    postgrest<Array<{ module_key: string }>>(
+      `user_module_permissions?user_id=eq.${callerId}&select=module_key`,
+      { method: "GET" },
+    ),
+    postgrest<Array<{ tenant_id: string | null }>>(
+      `profiles?user_id=eq.${callerId}&select=tenant_id&limit=1`,
+      { method: "GET" },
+    ),
+  ]);
+
+  const roleSet = new Set(roles.map((row) => row.role));
+  const permissionSet = new Set(permissions.map((row) => row.module_key));
+
+  return {
+    callerId,
+    tenantId: profiles[0]?.tenant_id || null,
+    isSuperAdmin: roleSet.has("super_admin"),
+    roles: roleSet,
+    permissions: permissionSet,
+  };
+}
+
+async function getCampaignRecord(campaignId: string) {
+  const rows = await postgrest<CampaignRow[]>(
+    `campaigns?id=eq.${campaignId}&select=id,tenant_id,created_by_user_id&limit=1`,
+    { method: "GET" },
+  );
+  return rows[0] || null;
+}
+
+function canDispatchCampaignEmails(access: AccessContext, campaign: CampaignRow) {
+  if (access.isSuperAdmin) return true;
+  if (!campaign.tenant_id || access.tenantId !== campaign.tenant_id) return false;
+  if (campaign.created_by_user_id === access.callerId) return true;
+
+  const isAdmin = access.roles.has("admin");
+  const canManageLinks =
+    access.permissions.has("links") || access.permissions.has("campaigns");
+
+  return isAdmin && canManageLinks;
 }
 
 async function sendWithResend(params: {
@@ -115,11 +204,27 @@ Deno.serve(async (request) => {
   }
 
   try {
+    const callerId = await fetchCallerId(request);
     const body = (await request.json()) as DispatchRequest;
     const campaignId = String(body?.campaignId || "").trim();
     const action = body?.action;
     if (!campaignId || (action !== "send_invites" && action !== "send_reminders")) {
       return jsonResponse(400, { error: "campaignId and action are required." });
+    }
+
+    const [access, campaign] = await Promise.all([
+      getAccessContext(callerId),
+      getCampaignRecord(campaignId),
+    ]);
+
+    if (!campaign) {
+      return jsonResponse(404, { error: "Campaign not found." });
+    }
+
+    if (!canDispatchCampaignEmails(access, campaign)) {
+      return jsonResponse(403, {
+        error: "You do not have permission to dispatch emails for this campaign.",
+      });
     }
 
     const links = await postgrest<
@@ -247,7 +352,6 @@ Deno.serve(async (request) => {
     console.error("dispatch-campaign-emails function error:", error);
     return jsonResponse(500, {
       error: "Failed to dispatch campaign emails.",
-      details: error instanceof Error ? error.message : String(error),
     });
   }
 });

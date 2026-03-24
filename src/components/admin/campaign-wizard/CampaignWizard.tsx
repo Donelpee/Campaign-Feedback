@@ -19,8 +19,12 @@ import { StepQuestions } from "./StepQuestions";
 import { StepReview } from "./StepReview";
 import type { CampaignType, CampaignQuestion } from "@/lib/supabase-types";
 import { cn } from "@/lib/utils";
-import { ModePicker } from "./ModePicker";
 import { GuidedBuddyPanel } from "./GuidedBuddyPanel";
+import {
+  getBasicInfoValidation,
+  getQuestionValidation,
+  type WizardWarningType,
+} from "./wizardValidation";
 
 export type CreationMode =
   | "guided_buddy"
@@ -85,15 +89,13 @@ const EMPTY_WIZARD_DATA: WizardData = {
   documentContent: "",
 };
 
-function coerceCreationMode(mode?: CreationMode): CreationMode | undefined {
-  if (!mode) return undefined;
-  return mode === "guided_buddy" ? "guided_buddy" : "guided_buddy";
+function coerceCreationMode(_mode?: CreationMode): CreationMode {
+  return "guided_buddy";
 }
 
 function mapLegacyBuildMode(value: unknown): CreationMode | undefined {
   if (value === "manual") return "guided_buddy";
-  if (value === "ai") return "conversation_builder";
-  if (value === "upload") return "template_story";
+  if (value === "ai" || value === "upload") return "guided_buddy";
   return undefined;
 }
 
@@ -156,51 +158,39 @@ function hasWizardProgress(data: WizardData): boolean {
   );
 }
 
-function isStepIncomplete(step: number, data: WizardData): boolean {
-  if (step === 0) {
-    const needsDescription = data.creationMode !== "quick_start";
-    const hasName = data.name.trim().length >= 10;
-    const hasDescription = !needsDescription || data.description.trim().length >= 10;
-    const hasValidDates = Boolean(
-      data.startDate && data.endDate && data.endDate >= data.startDate,
-    );
-
-    return !(
-      data.selectedCompanyId &&
-      hasName &&
-      hasDescription &&
-      hasValidDates
-    );
+function getWarningCopy(warningType: WizardWarningType) {
+  switch (warningType) {
+    case "empty_required_fields":
+      return {
+        title: "Please fill all required fields before clicking on the continue button.",
+        subtitle: "",
+      };
+    case "short_text":
+      return {
+        title: "Add more words to continue.",
+        subtitle: "Field 2 or 3 needs at least 10 characters.",
+      };
+    case "invalid_date_range":
+      return {
+        title: "Your end date cannot come before the start date.",
+        subtitle: "Choose an end date that is the same as or after the start date.",
+      };
+    case "missing_questions":
+      return {
+        title: "Add at least one question before you continue.",
+        subtitle: "",
+      };
+    case "invalid_questions":
+      return {
+        title: "Each question must be at least 8 characters long.",
+        subtitle: "Please finish every question before continuing.",
+      };
+    default:
+      return {
+        title: "Add more words to continue.",
+        subtitle: "Field 2 or 3 needs at least 10 characters.",
+      };
   }
-
-  if (step === 1) {
-    return (
-      data.questions.length === 0 ||
-      data.questions.some((question) => question.question.trim().length < 8)
-    );
-  }
-
-  return false;
-}
-
-function hasEmptyRequiredFields(step: number, data: WizardData): boolean {
-  if (step === 0) {
-    const needsDescription = data.creationMode !== "quick_start";
-
-    return Boolean(
-      !data.selectedCompanyId ||
-      !data.name.trim() ||
-      (needsDescription && !data.description.trim()) ||
-      !data.startDate ||
-      !data.endDate,
-    );
-  }
-
-  if (step === 1) {
-    return data.questions.length === 0;
-  }
-
-  return false;
 }
 
 export function CampaignWizard({
@@ -212,7 +202,6 @@ export function CampaignWizard({
   onDefaultCreationModeChange,
 }: CampaignWizardProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [showModePicker, setShowModePicker] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
   const [wizardData, setWizardData] = useState<WizardData>(
@@ -228,7 +217,6 @@ export function CampaignWizard({
       const normalized = normalizeDraftData(initialDraft);
       setWizardData(normalized);
       setCurrentStep(0);
-      setShowModePicker(!normalized.creationMode && !normalized.campaignId);
       setLastSavedAt(new Date().toISOString());
     } else {
       const stored = readStoredDraft();
@@ -237,7 +225,6 @@ export function CampaignWizard({
         setCurrentStep(
           Math.max(0, Math.min(STEPS.length - 1, Number(stored.step) || 0)),
         );
-        setShowModePicker(!stored.data.creationMode);
         setLastSavedAt(stored.updatedAt || null);
       } else {
         setWizardData({
@@ -245,7 +232,6 @@ export function CampaignWizard({
           creationMode: coerceCreationMode(defaultCreationMode || undefined),
         });
         setCurrentStep(0);
-        setShowModePicker(!defaultCreationMode);
         setLastSavedAt(null);
       }
     }
@@ -272,31 +258,20 @@ export function CampaignWizard({
     setLastSavedAt(updatedAt);
   }, [open, wizardData, currentStep]);
 
-  const canProceed = () => {
-    const nameLongEnough = wizardData.name.trim().length >= 10;
-    const goalLongEnough = wizardData.description.trim().length >= 10;
-    const baseValid = Boolean(
-      wizardData.selectedCompanyId &&
-        nameLongEnough &&
-        wizardData.startDate &&
-        wizardData.endDate &&
-        wizardData.endDate >= wizardData.startDate,
-    );
+  const basicInfoValidation = getBasicInfoValidation(wizardData);
+  const questionValidation = getQuestionValidation(wizardData.questions);
 
+  const canProceed = () => {
     switch (currentStep) {
       case 0:
-        if (wizardData.creationMode === "quick_start") {
-          return baseValid;
-        }
-        return baseValid && goalLongEnough;
+        return basicInfoValidation.isValid;
       case 1:
-        return wizardData.questions.length > 0;
+        return questionValidation.isValid;
       case 2:
         return Boolean(
           wizardData.creationMode &&
-            baseValid &&
-            (wizardData.creationMode === "quick_start" || goalLongEnough) &&
-            wizardData.questions.length > 0,
+            basicInfoValidation.isValid &&
+            questionValidation.isValid,
         );
       default:
         return false;
@@ -311,26 +286,20 @@ export function CampaignWizard({
         wizardData.creationMode === "quick_start"
           ? [
               Boolean(wizardData.selectedCompanyId),
-              wizardData.name.trim().length >= 10,
+              basicInfoValidation.hasName,
               Boolean(wizardData.startDate),
               Boolean(wizardData.endDate),
-              Boolean(
-                wizardData.startDate &&
-                  wizardData.endDate &&
-                  wizardData.endDate >= wizardData.startDate,
-              ),
+              !basicInfoValidation.hasInvalidDateRange &&
+                Boolean(wizardData.startDate && wizardData.endDate),
             ]
           : [
               Boolean(wizardData.selectedCompanyId),
-              wizardData.name.trim().length >= 10,
-              wizardData.description.trim().length >= 10,
+              basicInfoValidation.hasName,
+              basicInfoValidation.hasDescription,
               Boolean(wizardData.startDate),
               Boolean(wizardData.endDate),
-              Boolean(
-                wizardData.startDate &&
-                  wizardData.endDate &&
-                  wizardData.endDate >= wizardData.startDate,
-              ),
+              !basicInfoValidation.hasInvalidDateRange &&
+                Boolean(wizardData.startDate && wizardData.endDate),
             ];
 
       return requirements.filter(Boolean).length / requirements.length;
@@ -338,10 +307,7 @@ export function CampaignWizard({
 
     if (currentStep === 1) {
       if (wizardData.questions.length === 0) return 0;
-      const clearQuestionCount = wizardData.questions.filter(
-        (question) => question.question.trim().length >= 8,
-      ).length;
-      return clearQuestionCount / wizardData.questions.length;
+      return questionValidation.clearQuestionCount / wizardData.questions.length;
     }
 
     return canProceed() ? 1 : 0.7;
@@ -376,35 +342,32 @@ export function CampaignWizard({
   const isQuickStart = wizardData.creationMode === "quick_start";
   const isTemplateStory = wizardData.creationMode === "template_story";
   const isConversationBuilder = wizardData.creationMode === "conversation_builder";
-  const shouldShowModePicker = showModePicker && !wizardData.campaignId;
+  const currentStepWarningType =
+    currentStep === 0
+      ? showValidation ||
+        basicInfoValidation.warningType === "short_text" ||
+        basicInfoValidation.warningType === "invalid_date_range"
+        ? basicInfoValidation.warningType
+        : "none"
+      : currentStep === 1
+        ? showValidation
+          ? questionValidation.warningType
+          : "none"
+        : "none";
   const isCurrentStepIncomplete =
-    !shouldShowModePicker && currentStep < STEPS.length - 1
-      ? isStepIncomplete(currentStep, wizardData)
+    currentStep < STEPS.length - 1
+      ? currentStep === 0
+        ? !basicInfoValidation.isValid
+        : !questionValidation.isValid
       : false;
   const isCurrentStepComplete =
-    !shouldShowModePicker && currentStep < STEPS.length - 1 && !isCurrentStepIncomplete;
+    currentStep < STEPS.length - 1 && !isCurrentStepIncomplete;
   const showWaitingBuddy = isCurrentStepIncomplete && isIdleDetected;
-  const shortName =
-    wizardData.name.trim().length > 0 && wizardData.name.trim().length < 10;
-  const shortGoal =
-    wizardData.creationMode !== "quick_start" &&
-    wizardData.description.trim().length > 0 &&
-    wizardData.description.trim().length < 10;
-  const hasValidationEmptyFields =
-    showValidation && currentStep === 0 && hasEmptyRequiredFields(currentStep, wizardData);
-  const hasValidationShortText = currentStep === 0 && (shortName || shortGoal);
-  const warningCopy = hasValidationEmptyFields
-    ? {
-        title: "Please fill all required fields before clicking on the continue button.",
-        subtitle: "",
-      }
-    : {
-        title: "Add more words to continue.",
-        subtitle: "Field 2 or 3 needs at least 10 characters.",
-      };
+  const warningCopy = getWarningCopy(currentStepWarningType);
 
   const modeStepCopy = useMemo(() => {
-    const needsMoreWords = currentStep === 0 && (shortName || shortGoal);
+    const needsMoreWords =
+      currentStep === 0 && basicInfoValidation.warningType === "short_text";
 
     if (isQuickStart) {
       if (currentStep === 0) {
@@ -506,8 +469,7 @@ export function CampaignWizard({
     isConversationBuilder,
     isGuidedBuddy,
     isTemplateStory,
-    shortGoal,
-    shortName,
+    basicInfoValidation.warningType,
   ]);
 
   const updateWizardData = (data: Partial<WizardData>) => {
@@ -515,7 +477,7 @@ export function CampaignWizard({
   };
 
   useEffect(() => {
-    if (!open || shouldShowModePicker || !isCurrentStepIncomplete) {
+    if (!open || !isCurrentStepIncomplete) {
       setIsIdleDetected(false);
       return;
     }
@@ -545,7 +507,7 @@ export function CampaignWizard({
       });
       document.removeEventListener("focusin", resetIdleTimer);
     };
-  }, [open, shouldShowModePicker, currentStep, isCurrentStepIncomplete]);
+  }, [open, currentStep, isCurrentStepIncomplete]);
 
   const renderStep = () => {
     switch (currentStep) {
@@ -586,7 +548,6 @@ export function CampaignWizard({
   };
 
   function handleBack() {
-    if (shouldShowModePicker) return;
     setShowValidation(false);
     if (currentStep === 0) {
       return;
@@ -595,7 +556,6 @@ export function CampaignWizard({
   }
 
   function handleNext() {
-    if (shouldShowModePicker) return;
     if (!canProceed()) {
       setShowValidation(true);
       return;
@@ -612,7 +572,6 @@ export function CampaignWizard({
       await onComplete(wizardData);
       setCurrentStep(0);
       setWizardData(EMPTY_WIZARD_DATA);
-      setShowModePicker(true);
       setLastSavedAt(null);
       window.localStorage.removeItem(WIZARD_DRAFT_KEY_V2);
       window.localStorage.removeItem(WIZARD_DRAFT_KEY_V1);
@@ -628,7 +587,7 @@ export function CampaignWizard({
         <div
           className={cn(
             "cw-gradient-drift border-b",
-            shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
+            activeStepTheme.bgClass,
           )}
         >
           <DialogHeader className="px-3 pb-4 pt-4 sm:px-4 md:px-8 md:pt-6 md:pb-5">
@@ -638,14 +597,12 @@ export function CampaignWizard({
                   {wizardData.campaignId
                     ? "Edit Campaign / Survey"
                     : "Create Campaign / Survey"}
-                  {shouldShowModePicker || currentStep === 1
+                  {currentStep === 1
                     ? ""
                     : ` - ${STEPS[currentStep]}`}
                 </DialogTitle>
                 <DialogDescription className="max-w-3xl text-xs text-slate-600 sm:text-sm md:text-base">
-                  {shouldShowModePicker
-                    ? "Choose how you want to create your survey."
-                    : activeStepTheme.subtitle}
+                  {activeStepTheme.subtitle}
                 </DialogDescription>
               </div>
             </div>
@@ -663,58 +620,44 @@ export function CampaignWizard({
         <div
           className={cn(
             "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 sm:px-4 md:px-8 md:py-5",
-            shouldShowModePicker ? "cw-page-surface" : activeStepTheme.bgClass,
+            activeStepTheme.bgClass,
           )}
         >
           <div key={currentStep} className="cw-step-panel mx-auto w-full max-w-[1280px]">
             <div className="cw-form-calm">
-              {shouldShowModePicker ? (
-              <ModePicker
-                selectedMode={wizardData.creationMode}
-                onModeSelect={(mode) => {
-                  if (mode !== "guided_buddy") return;
-                  updateWizardData({ creationMode: mode });
-                  onDefaultCreationModeChange?.(mode);
-                  setShowModePicker(false);
-                  setCurrentStep(0);
-                }}
-              />
-            ) : (
-                modeStepCopy ? (
-                  <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-                    <div className="h-full">{renderStep()}</div>
-                    <div className="sticky top-4 h-[calc(100vh-220px)] min-h-[560px] self-start">
-                      <GuidedBuddyPanel
-                        title={modeStepCopy.title}
-                        subtitle={modeStepCopy.subtitle}
-                        isHappy={isCurrentStepComplete}
-                        isWaiting={showWaitingBuddy}
-                        warningTitle={warningCopy.title}
-                        warningSubtitle={warningCopy.subtitle}
-                        mood={modeStepCopy.mood}
-                        scene={
-                          currentStep === 0
-                            ? "setup"
-                            : currentStep === 1
-                              ? "build"
-                              : "review"
-                        }
-                        trackStatus={
-                          (showValidation && !canProceed()) ||
-                          hasValidationShortText
-                            ? "off_track"
-                            : getStepProgress() >= 0.7
-                              ? "on_track"
-                              : "neutral"
-                        }
-                        step={currentStep + 1}
-                        totalSteps={STEPS.length}
-                      />
-                    </div>
+              {modeStepCopy ? (
+                <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="h-full">{renderStep()}</div>
+                  <div className="sticky top-4 h-[calc(100vh-220px)] min-h-[560px] self-start">
+                    <GuidedBuddyPanel
+                      title={modeStepCopy.title}
+                      subtitle={modeStepCopy.subtitle}
+                      isHappy={isCurrentStepComplete}
+                      isWaiting={showWaitingBuddy}
+                      warningTitle={warningCopy.title}
+                      warningSubtitle={warningCopy.subtitle}
+                      mood={modeStepCopy.mood}
+                      scene={
+                        currentStep === 0
+                          ? "setup"
+                          : currentStep === 1
+                            ? "build"
+                            : "review"
+                      }
+                      trackStatus={
+                        currentStepWarningType !== "none"
+                          ? "off_track"
+                          : getStepProgress() >= 0.7
+                            ? "on_track"
+                            : "neutral"
+                      }
+                      step={currentStep + 1}
+                      totalSteps={STEPS.length}
+                    />
                   </div>
-                ) : (
-                  renderStep()
-                )
+                </div>
+              ) : (
+                renderStep()
               )}
             </div>
           </div>
@@ -724,27 +667,14 @@ export function CampaignWizard({
           <Button
             variant="default"
             onClick={handleBack}
-            disabled={currentStep <= 0 || shouldShowModePicker || isSubmitting}
+            disabled={currentStep <= 0 || isSubmitting}
             className="h-11 flex-1 min-w-[130px] px-4 text-base bg-slate-700 text-white hover:bg-slate-800 sm:flex-none sm:px-5"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
 
-          {shouldShowModePicker ? (
-            <Button
-              onClick={() => {
-                if (!wizardData.creationMode) return;
-                setShowModePicker(false);
-                setCurrentStep(0);
-              }}
-              disabled={!wizardData.creationMode}
-              className="h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
-            >
-              Continue
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
-          ) : currentStep === STEPS.length - 1 ? (
+          {currentStep === STEPS.length - 1 ? (
             <Button
               onClick={handleSubmit}
               disabled={!canProceed() || isSubmitting}

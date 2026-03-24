@@ -18,10 +18,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Save, KeyRound, Bell, Palette } from "lucide-react";
 
 type CreationMode =
-  | "guided_buddy"
-  | "quick_start"
-  | "template_story"
-  | "conversation_builder";
+  | "guided_buddy";
 
 export function SettingsManager() {
   const { user } = useAuth();
@@ -408,9 +405,9 @@ export function SettingsManager() {
           <div className="space-y-2">
             <p className="text-sm font-medium">Default campaign creation mode</p>
             <p className="text-xs text-muted-foreground">
-              New campaigns will open with this mode automatically.
+              Guided Buddy is currently the only available creation mode for new campaigns.
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:max-w-sm">
               <Button
                 type="button"
                 variant={
@@ -421,30 +418,6 @@ export function SettingsManager() {
                 className="justify-start"
               >
                 Guided Buddy
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled
-                className="justify-start"
-              >
-                Quick Start (Coming Soon)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled
-                className="justify-start"
-              >
-                Template Story (Coming Soon)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                disabled
-                className="justify-start"
-              >
-                Conversation Builder (Coming Soon)
               </Button>
             </div>
           </div>

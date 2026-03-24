@@ -290,7 +290,6 @@ Deno.serve(async (request) => {
     console.error("invite-admin-user error:", error);
     return jsonResponse(500, {
       error: "Failed to send onboarding invite.",
-      details: error instanceof Error ? error.message : String(error),
     });
   }
 });
