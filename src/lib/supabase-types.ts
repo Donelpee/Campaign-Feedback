@@ -8,6 +8,7 @@ export type AdminPermission =
   | "campaigns"
   | "links"
   | "responses"
+  | "audit_logs"
   | "users"
   | "settings";
 
@@ -18,6 +19,12 @@ export interface Company {
   logo_url: string | null;
   created_at: string;
   updated_at: string;
+  created_by_user_id?: string | null;
+  updated_by_user_id?: string | null;
+  created_by_name?: string;
+  updated_by_name?: string;
+  created_by_email?: string | null;
+  updated_by_email?: string | null;
 }
 
 export type CampaignType =
@@ -157,6 +164,22 @@ export interface Profile {
   username: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  tenant_id: string;
+  user_id: string | null;
+  user_name: string;
+  user_email: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  entity_name: string | null;
+  action: "create" | "update" | "delete";
+  summary: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  total_count?: number;
 }
 
 // Form data types

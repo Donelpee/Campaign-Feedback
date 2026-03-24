@@ -51,13 +51,10 @@ export function CompaniesManager() {
 
   const loadCompanies = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from("companies")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.rpc("get_companies_with_activity");
 
       if (error) throw error;
-      setCompanies(data || []);
+      setCompanies((data || []) as Company[]);
     } catch (error) {
       console.error("Error loading companies:", error);
       toast({
@@ -309,6 +306,8 @@ export function CompaniesManager() {
                     <TableHead>Company</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead>Created By</TableHead>
+                    <TableHead>Last Edited By</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -335,6 +334,30 @@ export function CompaniesManager() {
                       </TableCell>
                       <TableCell>
                         {new Date(company.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium">
+                            {company.created_by_name || "Not historically tracked"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {company.created_by_email || "Tracked from new activity onward"}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="space-y-1">
+                          <p className="font-medium">
+                            {company.updated_by_name ||
+                              company.created_by_name ||
+                              "Not historically tracked"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {company.updated_by_email ||
+                              company.created_by_email ||
+                              "Tracked from new activity onward"}
+                          </p>
+                        </div>
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">

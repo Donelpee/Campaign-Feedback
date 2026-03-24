@@ -22,6 +22,7 @@ import {
   Calendar,
   Link2,
   FileText,
+  ScrollText,
   LogOut,
   Settings,
   Users,
@@ -57,6 +58,12 @@ const menuItems: MenuItem[] = [
     url: "/admin/responses",
     icon: FileText,
     permission: "responses",
+  },
+  {
+    title: "Audit Log",
+    url: "/admin/audit-logs",
+    icon: ScrollText,
+    permission: "audit_logs",
   },
   {
     title: "Notifications",

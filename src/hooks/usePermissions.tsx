@@ -8,6 +8,7 @@ export type AdminPermission =
   | "campaigns"
   | "links"
   | "responses"
+  | "audit_logs"
   | "users"
   | "settings"
   | string;
@@ -18,6 +19,7 @@ export const ALL_PERMISSIONS: AdminPermission[] = [
   "campaigns",
   "links",
   "responses",
+  "audit_logs",
   "users",
   "settings",
 ];
@@ -28,6 +30,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   campaigns: "Campaigns",
   links: "Links",
   responses: "Responses",
+  audit_logs: "Audit Log",
   users: "Admin/Users",
   settings: "Settings",
 };

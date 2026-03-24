@@ -135,38 +135,83 @@ export type Database = {
         };
         Relationships: [];
       };
+      audit_logs: {
+        Row: {
+          action: string;
+          created_at: string;
+          entity_id: string | null;
+          entity_name: string | null;
+          entity_type: string;
+          id: string;
+          metadata: Json;
+          summary: string;
+          tenant_id: string;
+          user_id: string | null;
+        };
+        Insert: {
+          action: string;
+          created_at?: string;
+          entity_id?: string | null;
+          entity_name?: string | null;
+          entity_type: string;
+          id?: string;
+          metadata?: Json;
+          summary: string;
+          tenant_id: string;
+          user_id?: string | null;
+        };
+        Update: {
+          action?: string;
+          created_at?: string;
+          entity_id?: string | null;
+          entity_name?: string | null;
+          entity_type?: string;
+          id?: string;
+          metadata?: Json;
+          summary?: string;
+          tenant_id?: string;
+          user_id?: string | null;
+        };
+        Relationships: [];
+      };
       campaigns: {
         Row: {
           campaign_type: string | null;
           created_at: string;
+          created_by_user_id: string | null;
           description: string | null;
           end_date: string;
           id: string;
           name: string;
           questions: Json | null;
           start_date: string;
+          tenant_id: string;
           updated_at: string;
         };
         Insert: {
           campaign_type?: string | null;
           created_at?: string;
+          created_by_user_id?: string | null;
           description?: string | null;
           end_date: string;
           id?: string;
           name: string;
           questions?: Json | null;
           start_date: string;
+          tenant_id?: string;
           updated_at?: string;
         };
         Update: {
           campaign_type?: string | null;
           created_at?: string;
+          created_by_user_id?: string | null;
           description?: string | null;
           end_date?: string;
           id?: string;
           name?: string;
           questions?: Json | null;
           start_date?: string;
+          tenant_id?: string;
           updated_at?: string;
         };
         Relationships: [];
@@ -174,27 +219,36 @@ export type Database = {
       companies: {
         Row: {
           created_at: string;
+          created_by_user_id: string | null;
           description: string | null;
           id: string;
           logo_url: string | null;
           name: string;
+          tenant_id: string;
           updated_at: string;
+          updated_by_user_id: string | null;
         };
         Insert: {
           created_at?: string;
+          created_by_user_id?: string | null;
           description?: string | null;
           id?: string;
           logo_url?: string | null;
           name: string;
+          tenant_id?: string;
           updated_at?: string;
+          updated_by_user_id?: string | null;
         };
         Update: {
           created_at?: string;
+          created_by_user_id?: string | null;
           description?: string | null;
           id?: string;
           logo_url?: string | null;
           name?: string;
+          tenant_id?: string;
           updated_at?: string;
+          updated_by_user_id?: string | null;
         };
         Relationships: [];
       };
@@ -595,6 +649,60 @@ export type Database = {
           response_count: number;
         }[];
       };
+      get_audit_log_page: {
+        Args: {
+          p_action?: string | null;
+          p_entity_type?: string | null;
+          p_from_date?: string | null;
+          p_limit?: number;
+          p_offset?: number;
+          p_search?: string | null;
+          p_to_date?: string | null;
+          p_user_id?: string | null;
+        };
+        Returns: {
+          action: string;
+          created_at: string;
+          entity_id: string | null;
+          entity_name: string | null;
+          entity_type: string;
+          id: string;
+          metadata: Json;
+          summary: string;
+          tenant_id: string;
+          total_count: number;
+          user_email: string | null;
+          user_id: string | null;
+          user_name: string;
+        }[];
+      };
+      get_audit_log_users: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          activity_count: number;
+          last_activity_at: string;
+          user_email: string | null;
+          user_id: string;
+          user_name: string;
+        }[];
+      };
+      get_companies_with_activity: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          created_at: string;
+          created_by_email: string | null;
+          created_by_name: string;
+          created_by_user_id: string | null;
+          description: string | null;
+          id: string;
+          logo_url: string | null;
+          name: string;
+          updated_at: string;
+          updated_by_email: string | null;
+          updated_by_name: string;
+          updated_by_user_id: string | null;
+        }[];
+      };
       has_permission: {
         Args: {
           _permission: string;
@@ -640,6 +748,7 @@ export type Database = {
         | "campaigns"
         | "links"
         | "responses"
+        | "audit_logs"
         | "users"
         | "settings";
       app_role: "admin" | "super_admin";

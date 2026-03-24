@@ -126,7 +126,6 @@ export function AdminUsersManager() {
   const [newCompanyIds, setNewCompanyIds] = useState<string[]>([]);
   const [editUser, setEditUser] = useState<UserRoleRow | null>(null);
   const [newRoleName, setNewRoleName] = useState("");
-  const [newModuleName, setNewModuleName] = useState("");
   const [manageRoleKey, setManageRoleKey] = useState<string>("");
   const [managedRoleModules, setManagedRoleModules] = useState<AdminPermission[]>(
     [],
@@ -616,34 +615,6 @@ export function AdminUsersManager() {
     },
   });
 
-  const createModule = useMutation({
-    mutationFn: async () => {
-      const moduleKey = newModuleName
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-      if (!moduleKey) throw new Error("Module name is required.");
-      const { error } = await supabase.from("app_modules").insert({
-        module_key: moduleKey,
-        module_name: newModuleName.trim(),
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["module-options"] });
-      toast({ title: "Module created" });
-      setNewModuleName("");
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    },
-  });
-
   const toggleManagedRoleModule = (permission: AdminPermission) => {
     setManagedRoleModules((prev) =>
       prev.includes(permission)
@@ -909,13 +880,13 @@ export function AdminUsersManager() {
       {canManageUsers && (
         <Card>
           <CardHeader>
-            <CardTitle>Role & Module Management</CardTitle>
+            <CardTitle>Role Management</CardTitle>
             <CardDescription>
-              Create roles and modules. New modules automatically appear in user permission lists.
+              Create roles and assign the existing app sections each role can access.
             </CardDescription>
           </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-3 rounded-lg border p-4">
+          <CardContent>
+            <div className="max-w-xl space-y-3 rounded-lg border p-4">
               <Label>Create Role</Label>
               <Input
                 placeholder="Example: Regional Manager"
@@ -930,23 +901,6 @@ export function AdminUsersManager() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 Create Role
-              </Button>
-            </div>
-            <div className="space-y-3 rounded-lg border p-4">
-              <Label>Create Module</Label>
-              <Input
-                placeholder="Example: Billing Reports"
-                value={newModuleName}
-                onChange={(e) => setNewModuleName(e.target.value)}
-              />
-              <Button
-                onClick={() => createModule.mutate()}
-                disabled={!newModuleName.trim() || createModule.isPending}
-              >
-                {createModule.isPending && (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                )}
-                Create Module
               </Button>
             </div>
           </CardContent>
@@ -1084,7 +1038,7 @@ export function AdminUsersManager() {
                         </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">
-                          {ur.permissionCount || 0} of 7 sections
+                          {ur.permissionCount || 0} of {ALL_PERMISSIONS.length} sections
                         </span>
                       )}
                     </TableCell>
