@@ -590,10 +590,10 @@ export function CampaignWizard({
             activeStepTheme.bgClass,
           )}
         >
-          <DialogHeader className="px-3 pb-4 pt-4 sm:px-4 md:px-8 md:pt-6 md:pb-5">
+          <DialogHeader className="px-3 pb-2.5 pt-3 sm:px-4 md:px-6 md:pb-3 md:pt-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-2">
-                <DialogTitle className="text-xl font-semibold tracking-tight sm:text-2xl md:text-3xl">
+              <div className="space-y-1.5">
+                <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl md:text-[1.65rem]">
                   {wizardData.campaignId
                     ? "Edit Campaign / Survey"
                     : "Create Campaign / Survey"}
@@ -601,34 +601,36 @@ export function CampaignWizard({
                     ? ""
                     : ` - ${STEPS[currentStep]}`}
                 </DialogTitle>
-                <DialogDescription className="max-w-3xl text-xs text-slate-600 sm:text-sm md:text-base">
+                <DialogDescription className="max-w-3xl text-xs text-slate-600 sm:text-sm">
                   {activeStepTheme.subtitle}
                 </DialogDescription>
               </div>
+              {lastSavedAt && (
+                <p className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-extrabold text-emerald-900 shadow-[0_8px_18px_rgba(16,185,129,0.16)]">
+                  Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
+                </p>
+              )}
             </div>
           </DialogHeader>
         </div>
 
-        {lastSavedAt && (
-          <div className="px-3 pt-2 sm:px-4 md:px-8 md:pt-3">
-            <p className="inline-flex rounded-md border border-slate-300 bg-white/80 px-3 py-1 text-sm font-semibold text-slate-800 shadow-sm">
-              Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
-            </p>
-          </div>
-        )}
-
         <div
           className={cn(
-            "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-3 sm:px-4 md:px-8 md:py-5",
+            "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-2 sm:px-4 md:px-6 md:py-2.5 xl:overflow-hidden",
             activeStepTheme.bgClass,
           )}
         >
-          <div key={currentStep} className="cw-step-panel mx-auto w-full max-w-[1280px]">
-            <div className="cw-form-calm">
+          <div
+            key={currentStep}
+            className="cw-step-panel mx-auto w-full max-w-[1280px] xl:h-full"
+          >
+            <div className="cw-form-calm xl:h-full">
               {modeStepCopy ? (
-                <div className="grid items-stretch gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-                  <div className="h-full">{renderStep()}</div>
-                  <div className="sticky top-4 h-[calc(100vh-220px)] min-h-[560px] self-start">
+                <div className="grid gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_310px] xl:items-stretch xl:gap-4">
+                  <div className="xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-2">
+                    {renderStep()}
+                  </div>
+                  <div className="xl:h-full xl:min-h-0 xl:self-start">
                     <GuidedBuddyPanel
                       title={modeStepCopy.title}
                       subtitle={modeStepCopy.subtitle}
@@ -663,12 +665,12 @@ export function CampaignWizard({
           </div>
         </div>
 
-        <div className="shrink-0 flex flex-wrap justify-between gap-2 px-3 py-3 border-t bg-slate-100/95 sm:px-4 md:px-8 md:py-4">
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-1.5 border-t bg-slate-100/95 px-3 py-1 sm:px-4 md:px-5 md:py-1.5">
           <Button
             variant="default"
             onClick={handleBack}
             disabled={currentStep <= 0 || isSubmitting}
-            className="h-11 flex-1 min-w-[130px] px-4 text-base bg-slate-700 text-white hover:bg-slate-800 sm:flex-none sm:px-5"
+            className="h-9 flex-1 min-w-[116px] bg-slate-700 px-4 text-sm font-bold text-white hover:bg-slate-800 sm:flex-none"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
@@ -678,7 +680,7 @@ export function CampaignWizard({
             <Button
               onClick={handleSubmit}
               disabled={!canProceed() || isSubmitting}
-              className="cw-soft-pulse h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
+              className="cw-soft-pulse h-9 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
             >
               {isSubmitting
                 ? wizardData.campaignId
@@ -691,7 +693,7 @@ export function CampaignWizard({
           ) : (
             <Button
               onClick={handleNext}
-              className="cw-soft-pulse h-11 flex-1 min-w-[150px] px-4 text-base sm:flex-none sm:px-6"
+              className="cw-soft-pulse h-9 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
             >
               {isQuickStart && currentStep === 0
                 ? "Continue to questions"

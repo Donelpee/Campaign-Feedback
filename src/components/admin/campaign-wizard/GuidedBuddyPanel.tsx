@@ -50,7 +50,7 @@ export function GuidedBuddyPanel({
       ? cowboyByEmotion.confused
       : scene === "setup"
         ? cowboyByEmotion.wave
-        : scene === "build"
+      : scene === "build"
           ? cowboyByEmotion.laugh
           : cowboyByEmotion.win;
 
@@ -58,18 +58,30 @@ export function GuidedBuddyPanel({
     isWaiting
       ? "cw-cowboy-waiting"
       : isHappy
-      ? "cw-cowboy-happy"
-      : trackStatus === "off_track"
-      ? "cw-cowboy-confused"
-      : scene === "build"
-        ? "cw-cowboy-laugh"
-        : scene === "review" || mood === "celebrate"
-          ? "cw-cowboy-win"
-          : "cw-cowboy-wave";
+        ? "cw-cowboy-happy"
+        : trackStatus === "off_track"
+          ? "cw-cowboy-confused"
+          : scene === "build"
+            ? "cw-cowboy-laugh"
+            : scene === "review" || mood === "celebrate"
+              ? "cw-cowboy-win"
+              : "cw-cowboy-wave";
+
+  const renderQuotedSpeech = (content: string, tone: "default" | "warning" = "default") => (
+    <span
+      className={
+        tone === "warning"
+          ? "font-bold text-rose-800"
+          : "font-bold text-slate-900"
+      }
+    >
+      "{content}"
+    </span>
+  );
 
   return (
-    <Card className="cw-soft-panel h-full min-h-[560px] overflow-hidden">
-      <CardContent className="flex h-full min-h-0 flex-col gap-4 pt-5">
+    <Card className="cw-soft-panel h-full min-h-[440px] overflow-hidden xl:h-full xl:min-h-0">
+      <CardContent className="flex h-full min-h-0 flex-col gap-2.5 pt-4">
         <div className="flex items-center justify-between gap-2">
           <Badge variant="secondary" className="text-sm font-extrabold tracking-wide">
             Buddy helper
@@ -80,41 +92,46 @@ export function GuidedBuddyPanel({
         </div>
 
         <div className="flex-1 min-h-0 p-1">
-          <div className="relative flex h-full min-h-0 items-end justify-center">
-            {isWaiting ? (
-              <div className="absolute left-3 top-3 z-10 max-w-[240px] rounded-2xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-sm text-amber-900 shadow-sm">
-                <span className="absolute -bottom-2 left-8 h-4 w-4 rotate-45 border-b border-r border-amber-300 bg-amber-50/95" />
-                <p className="font-semibold">I am waiting for you...</p>
-              </div>
-            ) : trackStatus !== "off_track" ? (
-              <div className="absolute left-3 top-3 z-10 max-w-[250px] rounded-2xl border border-slate-300 bg-white/95 px-3 py-2 text-sm text-slate-700 shadow-sm">
-                <span className="absolute -bottom-2 left-8 h-4 w-4 rotate-45 border-b border-r border-slate-300 bg-white/95" />
-                <p className="font-semibold text-slate-900">
-                  {isHappy ? happyTitle : title}
-                </p>
-                {(isHappy ? happySubtitle : subtitle) ? (
-                  <p className="mt-1">{isHappy ? happySubtitle : subtitle}</p>
-                ) : null}
-              </div>
-            ) : (
-              <div className="absolute left-3 top-3 z-10 max-w-[260px] rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2 shadow-sm">
-                <span className="absolute -bottom-2 left-8 h-4 w-4 rotate-45 border-b border-r border-rose-300 bg-rose-50" />
-                <p className="text-base font-extrabold text-rose-800">{warningTitle}</p>
-                {warningSubtitle ? (
-                  <p className="mt-1 text-sm font-bold text-rose-700">
-                    {warningSubtitle}
-                  </p>
-                ) : null}
-              </div>
-            )}
-            <img
-              src={mascotSrc}
-              alt="Assistant mascot"
-              className={`cw-gentle-bob h-[82%] w-auto max-w-full object-contain ${moodClass}`}
-              onError={(event) => {
-                event.currentTarget.style.display = "none";
-              }}
-            />
+          <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+            <div className="flex min-h-[118px] items-start justify-center px-3 pb-1 pt-2">
+              {isWaiting ? (
+                <div className="relative w-full max-w-[230px] rounded-2xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm">
+                  <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-amber-300 bg-amber-50/95" />
+                  <p className="leading-snug">{renderQuotedSpeech("I am waiting for you...")}</p>
+                </div>
+              ) : trackStatus !== "off_track" ? (
+                <div className="relative w-full max-w-[300px] rounded-2xl border border-slate-300 bg-white/95 px-4 py-3 text-sm text-slate-700 shadow-sm">
+                  <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-slate-300 bg-white/95" />
+                  <p className="leading-snug">{renderQuotedSpeech(isHappy ? happyTitle : title)}</p>
+                  {(isHappy ? happySubtitle : subtitle) ? (
+                    <p className="mt-1 leading-snug">
+                      {renderQuotedSpeech(isHappy ? happySubtitle : subtitle)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="relative w-full max-w-[280px] rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs shadow-sm">
+                  <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-rose-300 bg-rose-50" />
+                  <p className="leading-snug">{renderQuotedSpeech(warningTitle, "warning")}</p>
+                  {warningSubtitle ? (
+                    <p className="mt-1 leading-snug">
+                      <span className="font-bold text-rose-700">"{warningSubtitle}"</span>
+                    </p>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <div className="flex min-h-0 items-end justify-center overflow-hidden pt-2">
+              <img
+                src={mascotSrc}
+                alt="Assistant mascot"
+                className={`cw-gentle-bob translate-y-8 h-[108%] w-auto max-w-full object-contain object-bottom sm:h-[114%] xl:translate-y-10 xl:h-[118%] ${moodClass}`}
+                onError={(event) => {
+                  event.currentTarget.style.display = "none";
+                }}
+              />
+            </div>
           </div>
         </div>
       </CardContent>
