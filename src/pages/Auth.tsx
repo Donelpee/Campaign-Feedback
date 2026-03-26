@@ -16,7 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, BarChart3 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const emailSchema = z.string().email("Please enter a valid email address");
@@ -369,10 +369,16 @@ export default function Auth() {
       <div className="w-full max-w-5xl grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="hidden lg:flex rounded-3xl border border-border/70 bg-card/90 p-10 shadow-[0_20px_60px_rgba(15,23,42,0.10)] flex-col justify-between">
           <div>
-            <div className="inline-flex items-center gap-3 text-primary">
-              <BarChart3 className="h-10 w-10" />
-              <span className="text-3xl font-bold tracking-tight">FeedbackHub</span>
-            </div>
+              <div className="inline-flex flex-col items-start text-primary">
+                <img
+                  src="/illustrations/mascot/nkowa_logo.png"
+                  alt="Nkọwa logo"
+                  className="h-28 w-auto object-contain lg:h-36"
+                />
+                <p className="mt-3 text-sm font-semibold uppercase tracking-[0.32em] text-slate-500">
+                  Campaign Intelligence Platform
+                </p>
+              </div>
             <h1 className="mt-10 text-4xl font-bold text-foreground leading-tight">
               Professional campaign intelligence for client feedback.
             </h1>
@@ -387,10 +393,16 @@ export default function Auth() {
 
         <div className="w-full max-w-md mx-auto">
           <div className="text-center mb-6 lg:hidden">
-            <div className="inline-flex items-center gap-2 text-primary">
-              <BarChart3 className="h-10 w-10" />
-              <span className="text-2xl font-bold">FeedbackHub</span>
-            </div>
+              <div className="inline-flex flex-col items-center justify-center text-primary">
+                <img
+                  src="/illustrations/mascot/nkowa_logo.png"
+                  alt="Nkọwa logo"
+                  className="h-24 w-auto object-contain"
+                />
+                <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">
+                  Campaign Intelligence Platform
+                </p>
+              </div>
             <p className="mt-2 text-muted-foreground">Admin Portal</p>
           </div>
 

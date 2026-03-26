@@ -39,6 +39,7 @@ import type {
   WizardData,
 } from "./campaign-wizard/CampaignWizard";
 import type { Campaign } from "@/lib/supabase-types";
+import { normalizeCampaignSurvey, serializeCampaignSurvey } from "@/lib/campaign-survey";
 
 const LOCAL_CAMPAIGNS_KEY = "client-pulse-local-campaigns";
 const WIZARD_DRAFT_KEYS = ["campaign-wizard-draft-v2", "campaign-wizard-draft-v1"];
@@ -143,7 +144,21 @@ export function CampaignsManager({
   const loadCampaigns = useCallback(async () => {
     if (bypassAuth) {
       const localCampaigns = readLocalCampaigns();
-      setCampaigns(localCampaigns);
+      setCampaigns(
+        localCampaigns.map((campaign) => {
+          const survey = normalizeCampaignSurvey({
+            version: 2,
+            sections: campaign.sections || [],
+            questions: campaign.questions || [],
+          });
+
+          return {
+            ...campaign,
+            sections: survey.sections,
+            questions: survey.questions,
+          };
+        }),
+      );
       setIsLoading(false);
       return;
     }
@@ -164,14 +179,19 @@ export function CampaignsManager({
       if (linksRes.error) throw linksRes.error;
       if (countsRes.error) throw countsRes.error;
 
-      const data = campaignsRes.data || [];
-      const links = linksRes.data || [];
-      setCampaigns(
-        data.map((c) => ({
-          ...c,
-          campaign_type: c.campaign_type as Campaign["campaign_type"],
-          questions: (c.questions || []) as unknown as Campaign["questions"],
-        })),
+        const data = campaignsRes.data || [];
+        const links = linksRes.data || [];
+        setCampaigns(
+          data.map((c) => {
+            const survey = normalizeCampaignSurvey(c.questions);
+
+            return {
+              ...c,
+              campaign_type: c.campaign_type as Campaign["campaign_type"],
+              sections: survey.sections,
+              questions: survey.questions,
+            };
+        }),
       );
 
       const campaignCompanyMap: Record<
@@ -249,6 +269,7 @@ export function CampaignsManager({
         description: data.description.trim() || null,
         campaign_type: data.campaignType,
         questions: data.questions,
+        sections: data.sections,
         start_date: data.startDate,
         end_date: data.endDate,
         created_at: now,
@@ -348,7 +369,14 @@ export function CampaignsManager({
             name: trimmedName,
             description: data.description.trim() || null,
             campaign_type: data.campaignType,
-            questions: JSON.parse(JSON.stringify(data.questions)),
+            questions: JSON.parse(
+              JSON.stringify(
+                serializeCampaignSurvey({
+                  sections: data.sections,
+                  questions: data.questions,
+                }),
+              ),
+            ),
             start_date: data.startDate,
             end_date: data.endDate,
           })
@@ -382,7 +410,14 @@ export function CampaignsManager({
             name: trimmedName,
             description: data.description.trim() || null,
             campaign_type: data.campaignType,
-            questions: JSON.parse(JSON.stringify(data.questions)),
+            questions: JSON.parse(
+              JSON.stringify(
+                serializeCampaignSurvey({
+                  sections: data.sections,
+                  questions: data.questions,
+                }),
+              ),
+            ),
             start_date: data.startDate,
             end_date: data.endDate,
           },
@@ -477,6 +512,11 @@ export function CampaignsManager({
     const responseCount = responseCountByCampaign[campaign.id] || 0;
 
     const campaignCompany = campaignCompanyById[campaign.id];
+    const survey = normalizeCampaignSurvey({
+      version: 2,
+      sections: campaign.sections || [],
+      questions: campaign.questions || [],
+    });
     setWizardDraft({
       campaignId: campaign.id,
       creationMode: "guided_buddy",
@@ -488,7 +528,8 @@ export function CampaignsManager({
       startDate: campaign.start_date,
       lockStartDate: responseCount > 0,
       endDate: campaign.end_date,
-      questions: campaign.questions || [],
+      sections: survey.sections,
+      questions: survey.questions,
       documentContent: "",
     });
     setIsWizardOpen(true);

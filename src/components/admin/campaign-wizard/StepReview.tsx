@@ -15,6 +15,7 @@ import type { WizardData } from "./CampaignWizard";
 import { QuestionPreview } from "./QuestionPreview";
 import type { CreationMode } from "./CampaignWizard";
 import { cn } from "@/lib/utils";
+import { getOrderedSurveyQuestions, normalizeCampaignSurvey } from "@/lib/campaign-survey";
 
 interface StepReviewProps {
   data: WizardData;
@@ -42,7 +43,7 @@ const questionTypeLabels: Record<string, string> = {
 };
 
 const creationModeLabel: Record<CreationMode, string> = {
-  guided_buddy: "Guided Buddy",
+  guided_buddy: "Brady Guide",
   quick_start: "Quick Start",
   template_story: "Template Story",
   conversation_builder: "Conversation Builder",
@@ -55,6 +56,12 @@ export function StepReview({
   creationMode,
 }: StepReviewProps) {
   const mode = creationMode || data.creationMode || "guided_buddy";
+  const survey = normalizeCampaignSurvey({
+    version: 2,
+    sections: data.sections || [],
+    questions: data.questions || [],
+  });
+  const orderedQuestions = getOrderedSurveyQuestions(survey.sections, survey.questions);
   const isQuickStart = mode === "quick_start";
   const isTemplateStory = mode === "template_story";
   const isConversationBuilder = mode === "conversation_builder";
@@ -84,13 +91,13 @@ export function StepReview({
     },
   };
 
-  const requiredCount = data.questions.filter((q) => q.required).length;
-  const optionalCount = data.questions.length - requiredCount;
+  const requiredCount = orderedQuestions.filter((q) => q.required).length;
+  const optionalCount = orderedQuestions.length - requiredCount;
   const readyChecks = [
     Boolean(data.name.trim()),
     Boolean(data.selectedCompanyId),
     Boolean(data.startDate && data.endDate),
-    data.questions.length > 0,
+    orderedQuestions.length > 0,
   ];
   const readiness = Math.round(
     (readyChecks.filter(Boolean).length / readyChecks.length) * 100,
@@ -102,7 +109,7 @@ export function StepReview({
   if (data.startDate && data.endDate && data.endDate < data.startDate) {
     reviewIssues.push("End date must be after start date.");
   }
-  if (data.questions.length === 0) reviewIssues.push("Add at least one question.");
+  if (orderedQuestions.length === 0) reviewIssues.push("Add at least one question.");
   const [company, setCompany] = useState<Company | null>(null);
   const modeTone =
     isQuickStart
@@ -176,7 +183,7 @@ export function StepReview({
               <span className="font-bold">{requiredCount}</span> required
             </p>
             <p>
-              <span className="font-bold">{optionalCount}</span> optional
+              <span className="font-bold">{survey.sections.length}</span> sections
             </p>
           </div>
           {reviewIssues.length > 0 && (
@@ -239,10 +246,10 @@ export function StepReview({
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Builder</p>
-              <Badge variant="secondary">
-                {creationModeLabel[
-                  mode
-                ] || "Guided Buddy"}
+                  <Badge variant="secondary">
+                  {creationModeLabel[
+                    mode
+                ] || "Brady Guide"}
               </Badge>
             </div>
           </div>
@@ -270,48 +277,90 @@ export function StepReview({
           <CardTitle className="text-base flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-primary" />
             {isConversationBuilder
-              ? `Conversation Prompts (${data.questions.length})`
-              : `What Respondents Will Fill (${data.questions.length})`}
+              ? `Conversation Prompts (${orderedQuestions.length})`
+              : `What Respondents Will Fill (${orderedQuestions.length})`}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
             <span className="font-semibold">{requiredCount}</span> required,{" "}
-            <span className="font-semibold">{optionalCount}</span> optional
+            <span className="font-semibold">{optionalCount}</span> optional,{" "}
+            <span className="font-semibold">{survey.sections.length}</span> sections
           </div>
 
           <div className="space-y-3">
-            {data.questions.map((question, index) => (
-              <div key={question.id}>
-                {index > 0 && <Separator className="my-3" />}
-                <div
-                  className={`flex items-start gap-3 ${
-                    isTemplateStory ? "rounded-lg border border-violet-200/80 p-3" : ""
-                  } ${isConversationBuilder ? "rounded-lg border border-amber-200/80 p-3" : ""}`}
-                >
-                  <span className="text-xs font-medium text-muted-foreground min-w-[24px]">
-                    {isConversationBuilder ? `P${index + 1}` : `Q${index + 1}`}
-                  </span>
-                  <div className="flex-1">
-                    <p className="text-sm">
-                      {question.question}
-                      {question.required && (
-                        <span className="text-destructive ml-1">*</span>
-                      )}
-                    </p>
-                    <Badge variant="outline" className="text-xs mt-1">
-                      {questionTypeLabels[question.type]}
-                    </Badge>
-                    {question.showIfQuestionId && (
-                      <Badge variant="outline" className="text-xs mt-1 ml-1">
-                        Conditional
+            {survey.sections.map((section, sectionIndex) => {
+              const sectionQuestions = orderedQuestions.filter(
+                (question) => question.sectionId === section.id,
+              );
+
+              if (sectionQuestions.length === 0) return null;
+
+              return (
+                <div key={section.id} className="space-y-3">
+                  {sectionIndex > 0 && <Separator className="my-3" />}
+                  <div className="rounded-xl border border-slate-200 bg-slate-50/75 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="secondary">Section {sectionIndex + 1}</Badge>
+                      <p className="text-sm font-semibold text-slate-900">{section.title}</p>
+                      <Badge variant="outline" className="text-xs">
+                        {sectionQuestions.length} question
+                        {sectionQuestions.length === 1 ? "" : "s"}
                       </Badge>
+                    </div>
+                    {section.description && (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {section.description}
+                      </p>
                     )}
-                    {!isQuickStart && <QuestionPreview question={question} className="mt-2" />}
                   </div>
+
+                  {sectionQuestions.map((question, index) => {
+                    const questionNumber =
+                      orderedQuestions.findIndex((candidate) => candidate.id === question.id) + 1;
+
+                    return (
+                      <div
+                        key={question.id}
+                        className={`flex items-start gap-3 ${
+                          isTemplateStory ? "rounded-lg border border-violet-200/80 p-3" : ""
+                        } ${isConversationBuilder ? "rounded-lg border border-amber-200/80 p-3" : ""}`}
+                      >
+                        <span className="text-xs font-medium text-muted-foreground min-w-[24px]">
+                          {isConversationBuilder ? `P${questionNumber}` : `Q${questionNumber}`}
+                        </span>
+                        <div className="flex-1">
+                          <p className="text-sm">
+                            {question.question}
+                            {question.required && (
+                              <span className="text-destructive ml-1">*</span>
+                            )}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <Badge variant="outline" className="text-xs">
+                              {questionTypeLabels[question.type]}
+                            </Badge>
+                            {(question.visibility?.rules.length || 0) > 0 && (
+                              <Badge variant="outline" className="text-xs">
+                                Conditional
+                              </Badge>
+                            )}
+                            {index < sectionQuestions.length - 1 && (
+                              <Badge variant="outline" className="text-xs">
+                                Continues in this section
+                              </Badge>
+                            )}
+                          </div>
+                          {!isQuickStart && (
+                            <QuestionPreview question={question} className="mt-2" />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>

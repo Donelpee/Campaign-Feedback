@@ -13,13 +13,13 @@ export function ModePicker({ selectedMode, onModeSelect }: ModePickerProps) {
       <div className="cw-soft-panel p-5 md:p-6">
         <p className="text-xl font-semibold text-slate-900">Choose your creation style</p>
         <p className="mt-2 text-base text-slate-600">
-          Guided Buddy is currently available. Other creation styles will be released soon.
+          Brady Guide is currently available. Other creation styles will be released soon.
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ModeCard
-          title="Guided Buddy"
+          title="Brady Guide"
           subtitle="Full guided pages with live helper feedback and checks."
           icon={MessageCircleHeart}
           selected={selectedMode === "guided_buddy"}

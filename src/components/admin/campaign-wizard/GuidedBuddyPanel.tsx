@@ -84,7 +84,7 @@ export function GuidedBuddyPanel({
       <CardContent className="flex h-full min-h-0 flex-col gap-2.5 pt-4">
         <div className="flex items-center justify-between gap-2">
           <Badge variant="secondary" className="text-sm font-extrabold tracking-wide">
-            Buddy helper
+            Brady
           </Badge>
           <span className="text-sm font-extrabold text-slate-700">
             Step {step} of {totalSteps}
@@ -125,7 +125,7 @@ export function GuidedBuddyPanel({
             <div className="flex min-h-0 items-end justify-center overflow-hidden pt-2">
               <img
                 src={mascotSrc}
-                alt="Assistant mascot"
+                alt="Brady mascot"
                 className={`cw-gentle-bob translate-y-8 h-[108%] w-auto max-w-full object-contain object-bottom sm:h-[114%] xl:translate-y-10 xl:h-[118%] ${moodClass}`}
                 onError={(event) => {
                   event.currentTarget.style.display = "none";

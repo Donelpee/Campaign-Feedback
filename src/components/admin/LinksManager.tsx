@@ -64,6 +64,7 @@ import type {
   CompanyCampaignLink,
 } from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
+import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 
 interface LinkWithDetails extends CompanyCampaignLink {
   company: Company;
@@ -211,11 +212,15 @@ export function LinksManager() {
       );
       setCompanies((companiesRes.data || []) as Company[]);
       setCampaigns(
-        (campaignsRes.data || []).map((c) => ({
-          ...c,
-          campaign_type: c.campaign_type as Campaign["campaign_type"],
-          questions: (c.questions || []) as unknown as Campaign["questions"],
-        })),
+        (campaignsRes.data || []).map((c) => {
+          const survey = normalizeCampaignSurvey(c.questions);
+          return {
+            ...c,
+            campaign_type: c.campaign_type as Campaign["campaign_type"],
+            sections: survey.sections,
+            questions: survey.questions,
+          };
+        }),
       );
     } catch (error) {
       console.error("Error loading data:", error);

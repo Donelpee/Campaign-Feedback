@@ -100,7 +100,7 @@ export function StepBasicInfo({
       label: "Quick Start setup",
       toneClass: "border-sky-200/80 bg-sky-50/50",
       nameLabel: "2. Campaign Name *",
-      namePlaceholder: "Example: March Client Pulse",
+      namePlaceholder: "Example: March Nkọwa",
         goalLabel: "3. Campaign Goal *",
         goalPlaceholder: "Example: Learn what customers liked this month.",
       }

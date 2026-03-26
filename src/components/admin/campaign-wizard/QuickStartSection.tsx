@@ -15,7 +15,7 @@ export function QuickStartSection({
     <Card className="cw-soft-panel border-sky-200/80 bg-sky-50/60">
       <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-4">
         <div>
-          <p className="text-base font-semibold text-slate-900">Quick Start helper</p>
+          <p className="text-base font-semibold text-slate-900">Brady Quick Start</p>
           <p className="mt-1 text-sm text-slate-600">
             Add 3 starter questions, then edit to match your campaign.
           </p>

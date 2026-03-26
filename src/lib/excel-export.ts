@@ -1,6 +1,5 @@
-import ExcelJS from "exceljs";
-import { generateBarChart, generatePieChart } from "./chart-image-generator";
 import type { CampaignQuestion } from "./supabase-types";
+import { normalizeCampaignSurvey } from "./campaign-survey";
 
 export interface ExportResponseData {
   id: string;
@@ -99,8 +98,10 @@ export async function exportToExcel(
   insights: AdvancedExportInsights,
   filename: string,
 ) {
+  const [{ default: ExcelJS }, { generateBarChart, generatePieChart }] =
+    await Promise.all([import("exceljs"), import("./chart-image-generator")]);
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Client Pulse Lens";
+  workbook.creator = "Nkọwa";
   workbook.created = new Date();
 
   const summary = workbook.addWorksheet("Summary");
@@ -261,7 +262,9 @@ export async function exportToExcel(
     sheet.getCell("A6").value = "Completion Rate";
     sheet.getCell("B6").value = `${(metric?.completion_rate || 0).toFixed(1)}%`;
 
-    const questionDefs = campaignResponses[0].campaign_questions || [];
+    const questionDefs = normalizeCampaignSurvey(
+      campaignResponses[0].campaign_questions || [],
+    ).questions;
     let rowCursor = 8;
     questionDefs.forEach((question) => {
       const values = campaignResponses.map((response) => response.answers[question.id]);

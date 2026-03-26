@@ -17,9 +17,10 @@ import {
 import { StepBasicInfo } from "./StepBasicInfo";
 import { StepQuestions } from "./StepQuestions";
 import { StepReview } from "./StepReview";
-import type { CampaignType, CampaignQuestion } from "@/lib/supabase-types";
+import type { CampaignType, CampaignQuestion, SurveySection } from "@/lib/supabase-types";
 import { cn } from "@/lib/utils";
 import { GuidedBuddyPanel } from "./GuidedBuddyPanel";
+import { createDefaultSection, normalizeCampaignSurvey } from "@/lib/campaign-survey";
 import {
   getBasicInfoValidation,
   getQuestionValidation,
@@ -44,6 +45,7 @@ export interface WizardData {
   startDate: string;
   lockStartDate?: boolean;
   endDate: string;
+  sections: SurveySection[];
   questions: CampaignQuestion[];
   documentContent?: string;
 }
@@ -85,6 +87,7 @@ const EMPTY_WIZARD_DATA: WizardData = {
   description: "",
   startDate: "",
   endDate: "",
+  sections: [createDefaultSection(0)],
   questions: [],
   documentContent: "",
 };
@@ -102,16 +105,30 @@ function mapLegacyBuildMode(value: unknown): CreationMode | undefined {
 function normalizeDraftData(data: unknown): WizardData {
   const incoming = (data && typeof data === "object" ? data : {}) as WizardData & {
     buildMode?: string;
+    sections?: SurveySection[];
   };
   const legacyMode = mapLegacyBuildMode(incoming.buildMode);
   const normalizedMode =
     incoming.creationMode && incoming.creationMode.length > 0
       ? incoming.creationMode
       : legacyMode;
+  const normalizedSurvey = normalizeCampaignSurvey(
+    Array.isArray(incoming.questions)
+      ? incoming.sections && incoming.sections.length > 0
+        ? {
+            version: 2 as const,
+            sections: incoming.sections,
+            questions: incoming.questions,
+          }
+        : incoming.questions
+      : incoming.questions,
+  );
 
   return {
     ...EMPTY_WIZARD_DATA,
     ...incoming,
+    sections: normalizedSurvey.sections,
+    questions: normalizedSurvey.questions,
     creationMode: coerceCreationMode(normalizedMode),
   };
 }

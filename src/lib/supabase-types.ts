@@ -33,6 +33,35 @@ export type CampaignType =
   | "product_research"
   | "event_evaluation";
 
+export type QuestionLogicOperator =
+  | "equals"
+  | "not_equals"
+  | "contains"
+  | "not_contains"
+  | "answered"
+  | "not_answered"
+  | "greater_than"
+  | "less_than";
+
+export interface QuestionVisibilityRule {
+  id: string;
+  sourceQuestionId: string;
+  operator: QuestionLogicOperator;
+  value?: string | number;
+}
+
+export interface QuestionVisibility {
+  mode: "all" | "any";
+  rules: QuestionVisibilityRule[];
+}
+
+export interface SurveySection {
+  id: string;
+  title: string;
+  description?: string;
+  continueLabel?: string;
+}
+
 export interface CampaignQuestion {
   id: string;
   type:
@@ -58,9 +87,17 @@ export interface CampaignQuestion {
   columns?: string[];
   min?: number;
   max?: number;
+  sectionId?: string;
+  visibility?: QuestionVisibility;
   showIfQuestionId?: string;
-  showIfOperator?: "equals" | "not_equals" | "contains";
-  showIfValue?: string;
+  showIfOperator?: QuestionLogicOperator;
+  showIfValue?: string | number;
+}
+
+export interface CampaignSurveyDefinition {
+  version: 2;
+  sections: SurveySection[];
+  questions: CampaignQuestion[];
 }
 
 export interface Campaign {
@@ -69,6 +106,7 @@ export interface Campaign {
   description: string | null;
   campaign_type: CampaignType;
   questions: CampaignQuestion[];
+  sections?: SurveySection[];
   start_date: string;
   end_date: string;
   created_at: string;

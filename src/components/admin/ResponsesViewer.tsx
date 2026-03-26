@@ -60,8 +60,8 @@ import {
 } from "lucide-react";
 import { FileSpreadsheet } from "lucide-react";
 import type { Company, Campaign } from "@/lib/supabase-types";
-import { exportToExcel } from "@/lib/excel-export";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
+import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 import {
   BarChart,
   Bar,
@@ -313,6 +313,7 @@ function forecastNext7Days(series: number[]): { next7: number; dailyAverage: num
 }
 
 function mapResponsePageRow(row: ResponsePageRow): ResponseWithDetails {
+  const survey = normalizeCampaignSurvey(row.campaign_questions);
   return {
     id: row.id,
     link_id: row.link_id,
@@ -333,7 +334,8 @@ function mapResponsePageRow(row: ResponsePageRow): ResponseWithDetails {
         id: row.campaign_id,
         name: row.campaign_name,
         campaign_type: row.campaign_type as Campaign["campaign_type"],
-        questions: (row.campaign_questions || []) as Campaign["questions"],
+        sections: survey.sections,
+        questions: survey.questions,
       } as Campaign,
     },
   };
@@ -443,20 +445,23 @@ export function ResponsesViewer() {
       setCampaignSummaries((summaryData.campaigns || []) as CampaignSummary[]);
       setCompanies((companiesRes.data || []) as Company[]);
       setLinks(
-        ((linksRes.data || []) as RawLinkRow[]).map((row) => ({
-          id: row.id,
-          company_id: row.company_id,
-          campaign_id: row.campaign_id,
-          access_count: (row as unknown as { access_count?: number }).access_count || 0,
-          company: row.company,
-          campaign: {
-            ...row.campaign,
-            campaign_type: row.campaign
-              .campaign_type as Campaign["campaign_type"],
-            questions: (row.campaign.questions ||
-              []) as unknown as Campaign["questions"],
-          },
-        })),
+        ((linksRes.data || []) as RawLinkRow[]).map((row) => {
+          const survey = normalizeCampaignSurvey(row.campaign.questions);
+          return {
+            id: row.id,
+            company_id: row.company_id,
+            campaign_id: row.campaign_id,
+            access_count: (row as unknown as { access_count?: number }).access_count || 0,
+            company: row.company,
+            campaign: {
+              ...row.campaign,
+              campaign_type: row.campaign
+                .campaign_type as Campaign["campaign_type"],
+              sections: survey.sections,
+              questions: survey.questions,
+            },
+          };
+        }),
       );
     } catch (error) {
       console.error("Error loading data:", error);
@@ -1023,6 +1028,7 @@ export function ResponsesViewer() {
         completion_rate: campaign.completionRate,
       }));
 
+      const { exportToExcel } = await import("@/lib/excel-export");
       await exportToExcel(
         data,
         metricsByCampaign,

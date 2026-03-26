@@ -34,8 +34,14 @@ import {
   Building2,
   ArrowUp,
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
-import type { CampaignQuestion, FeedbackFormData } from "@/lib/supabase-types";
+import type { CampaignQuestion, FeedbackFormData, SurveySection } from "@/lib/supabase-types";
+import {
+  isSurveyQuestionVisible,
+  normalizeCampaignSurvey,
+} from "@/lib/campaign-survey";
 
 type MatrixAnswer = Record<string, string | string[]>;
 type DynamicAnswer = number | string | string[] | MatrixAnswer;
@@ -46,6 +52,7 @@ interface LinkData {
   campaign_name: string;
   campaign_description: string | null;
   campaign_type: string | null;
+  campaign_sections: SurveySection[];
   campaign_questions: CampaignQuestion[];
   is_active: boolean;
   start_date: string;
@@ -69,6 +76,7 @@ export default function FeedbackForm() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [dynamicAnswers, setDynamicAnswers] = useState<
     Record<string, DynamicAnswer>
   >({});
@@ -183,12 +191,15 @@ export default function FeedbackForm() {
         return;
       }
 
-      const questions = Array.isArray(linkInfo.campaign_questions)
-        ? linkInfo.campaign_questions
-        : [];
+      const normalizedSurvey = normalizeCampaignSurvey(linkInfo.campaign_questions);
 
-      setLinkData({ ...linkInfo, campaign_questions: questions });
-      initializeDynamicAnswers(questions);
+      setLinkData({
+        ...linkInfo,
+        campaign_sections: normalizedSurvey.sections,
+        campaign_questions: normalizedSurvey.questions,
+      });
+      initializeDynamicAnswers(normalizedSurvey.questions);
+      setCurrentSectionIndex(0);
       setIsLoading(false);
     } catch (err) {
       console.error("Error loading link data:", err);
@@ -210,49 +221,9 @@ export default function FeedbackForm() {
 
   const hasDynamicQuestions = (linkData?.campaign_questions?.length || 0) > 0;
 
-  const doesConditionMatch = useCallback(
-    (answer: DynamicAnswer | undefined, operator: string, expectedValue: string) => {
-      const expected = expectedValue.trim().toLowerCase();
-      if (!expected) return true;
-
-      const normalize = (value: unknown) => String(value ?? "").trim().toLowerCase();
-
-      const asFlatValues = (): string[] => {
-        if (answer === undefined || answer === null) return [];
-        if (Array.isArray(answer)) return answer.map((v) => normalize(v));
-        if (typeof answer === "object") {
-          return Object.values(answer as Record<string, unknown>).flatMap((value) =>
-            Array.isArray(value)
-              ? value.map((entry) => normalize(entry))
-              : [normalize(value)],
-          );
-        }
-        return [normalize(answer)];
-      };
-
-      const values = asFlatValues();
-
-      const equalsMatch = values.some((value) => value === expected);
-      const containsMatch = values.some((value) => value.includes(expected));
-
-      if (operator === "not_equals") return !equalsMatch;
-      if (operator === "contains") return containsMatch;
-      return equalsMatch;
-    },
-    [],
-  );
-
   const isQuestionVisible = useCallback(
-    (question: CampaignQuestion) => {
-      if (!question.showIfQuestionId) return true;
-      const sourceAnswer = dynamicAnswers[question.showIfQuestionId];
-      return doesConditionMatch(
-        sourceAnswer,
-        question.showIfOperator || "equals",
-        question.showIfValue || "",
-      );
-    },
-    [doesConditionMatch, dynamicAnswers],
+    (question: CampaignQuestion) => isSurveyQuestionVisible(question, dynamicAnswers),
+    [dynamicAnswers],
   );
 
   const visibleDynamicQuestions = useMemo(() => {
@@ -261,6 +232,34 @@ export default function FeedbackForm() {
       isQuestionVisible(question),
     );
   }, [isQuestionVisible, linkData]);
+
+  const visibleSections = useMemo(() => {
+    if (!linkData) return [];
+
+    return (linkData.campaign_sections || [])
+      .map((section) => ({
+        ...section,
+        questions: visibleDynamicQuestions.filter(
+          (question) => question.sectionId === section.id,
+        ),
+      }))
+      .filter((section) => section.questions.length > 0);
+  }, [linkData, visibleDynamicQuestions]);
+
+  useEffect(() => {
+    if (visibleSections.length === 0) {
+      setCurrentSectionIndex(0);
+      return;
+    }
+
+    setCurrentSectionIndex((previous) =>
+      Math.min(previous, Math.max(visibleSections.length - 1, 0)),
+    );
+  }, [visibleSections]);
+
+  const activeSection = visibleSections[currentSectionIndex] || null;
+  const activeSectionQuestions = activeSection?.questions || [];
+  const isLastSection = currentSectionIndex >= visibleSections.length - 1;
 
   const derivedPayload = useMemo(() => {
     if (!hasDynamicQuestions || !linkData) {
@@ -318,9 +317,13 @@ export default function FeedbackForm() {
       ),
       improvement_areas: multipleAnswer,
       additional_comments: textAnswer,
-      answers: dynamicAnswers,
-    };
-  }, [dynamicAnswers, formData, hasDynamicQuestions, linkData]);
+        answers: Object.fromEntries(
+          Object.entries(dynamicAnswers).filter(([questionId]) =>
+            visibleDynamicQuestions.some((question) => question.id === questionId),
+          ),
+        ),
+      };
+  }, [dynamicAnswers, formData, hasDynamicQuestions, linkData, visibleDynamicQuestions]);
 
   const isRequiredQuestionMissing = (question: CampaignQuestion) => {
     if (!question.required) return false;
@@ -365,10 +368,10 @@ export default function FeedbackForm() {
     return answer === undefined || answer === null || Number.isNaN(Number(answer));
   };
 
-  const validateDynamicQuestions = () => {
+  const validateDynamicQuestions = (questionsToValidate = visibleDynamicQuestions) => {
     if (!hasDynamicQuestions || !linkData) return true;
 
-    const missingRequired = visibleDynamicQuestions.some((question) =>
+    const missingRequired = questionsToValidate.some((question) =>
       isRequiredQuestionMissing(question),
     );
 
@@ -415,6 +418,15 @@ export default function FeedbackForm() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleContinueSection = () => {
+    setSubmitError(null);
+    setShowValidationErrors(true);
+    if (!validateDynamicQuestions(activeSectionQuestions)) return;
+    setCurrentSectionIndex((previous) =>
+      Math.min(previous + 1, Math.max(visibleSections.length - 1, 0)),
+    );
   };
 
   if (isLoading) {
@@ -931,40 +943,58 @@ export default function FeedbackForm() {
               </div>
             )}
             {hasDynamicQuestions ? (
-              visibleDynamicQuestions.map((question, index) => (
-                <Card
-                  key={question.id}
-                  className={`warm-question-card transition-shadow duration-200 ${
-                    showValidationErrors && isRequiredQuestionMissing(question)
-                      ? "border-destructive/70 ring-1 ring-destructive/40"
-                      : ""
-                  }`}
-                >
-                  <CardHeader>
-                    <CardTitle className="text-lg">
-                      Question {index + 1}
-                      {question.required && (
-                        <span className="ml-1 text-destructive">*</span>
-                      )}
-                    </CardTitle>
-                    <CardDescription>
-                      {question.required
-                        ? "Required question"
-                        : "Optional question"}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {renderDynamicQuestion(question, index)}
-                    {showValidationErrors &&
-                      isRequiredQuestionMissing(question) && (
-                        <div className="mt-4 flex items-center gap-2 text-destructive">
-                          <AlertCircle className="h-4 w-4" />
-                          <p className="text-sm">This is a required question</p>
-                        </div>
-                      )}
-                  </CardContent>
-                </Card>
-              ))
+              <>
+                {activeSection && visibleSections.length > 1 && (
+                  <Card className="warm-question-card transition-shadow duration-200">
+                    <CardHeader>
+                      <CardTitle className="text-lg">
+                        {activeSection.title}
+                      </CardTitle>
+                      <CardDescription>
+                        Section {currentSectionIndex + 1} of {visibleSections.length}
+                        {activeSection.description
+                          ? ` - ${activeSection.description}`
+                          : ""}
+                      </CardDescription>
+                    </CardHeader>
+                  </Card>
+                )}
+
+                {activeSectionQuestions.map((question, index) => (
+                  <Card
+                    key={question.id}
+                    className={`warm-question-card transition-shadow duration-200 ${
+                      showValidationErrors && isRequiredQuestionMissing(question)
+                        ? "border-destructive/70 ring-1 ring-destructive/40"
+                        : ""
+                    }`}
+                  >
+                    <CardHeader>
+                      <CardTitle className="text-lg">
+                        Question {index + 1}
+                        {question.required && (
+                          <span className="ml-1 text-destructive">*</span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>
+                        {question.required
+                          ? "Required question"
+                          : "Optional question"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {renderDynamicQuestion(question, index)}
+                      {showValidationErrors &&
+                        isRequiredQuestionMissing(question) && (
+                          <div className="mt-4 flex items-center gap-2 text-destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <p className="text-sm">This is a required question</p>
+                          </div>
+                        )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </>
             ) : (
               <>
                 <Card className="warm-question-card transition-shadow duration-200">
@@ -1080,22 +1110,68 @@ export default function FeedbackForm() {
               </>
             )}
 
-            {/* Submit Button */}
-            <Button
-              type="submit"
-              size="lg"
-              className="w-full"
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                "Submit Feedback"
-              )}
-            </Button>
+            {hasDynamicQuestions ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="lg"
+                  className="sm:min-w-[140px]"
+                  onClick={() =>
+                    setCurrentSectionIndex((previous) => Math.max(previous - 1, 0))
+                  }
+                  disabled={currentSectionIndex === 0 || isSubmitting}
+                >
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Back
+                </Button>
+
+                {isLastSection ? (
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="sm:min-w-[180px]"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      "Submit Feedback"
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="sm:min-w-[180px]"
+                    onClick={handleContinueSection}
+                    disabled={isSubmitting}
+                  >
+                    {activeSection?.continueLabel?.trim() || "Continue"}
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <Button
+                type="submit"
+                size="lg"
+                className="w-full"
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Feedback"
+                )}
+              </Button>
+            )}
           </div>
         </form>
 

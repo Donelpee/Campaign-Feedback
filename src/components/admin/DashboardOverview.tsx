@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import type { Campaign, CampaignQuestion, Company } from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
+import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 
 interface LinkWithRelations {
   id: string;
@@ -334,17 +335,21 @@ export function DashboardOverview() {
 
       const mappedLinks: LinkWithRelations[] = (linksRes.data || [])
         .filter((row) => isRecord(row.company) && isRecord(row.campaign))
-        .map((row) => ({
-          id: row.id as string,
-          access_count: Number(row.access_count || 0),
-          created_at: row.created_at as string,
-          company: row.company as unknown as Company,
-          campaign: {
-            ...(row.campaign as unknown as Campaign),
-            questions: (((row.campaign as unknown as Campaign).questions ||
-              []) as unknown[]) as CampaignQuestion[],
-          },
-        }));
+        .map((row) => {
+          const campaign = row.campaign as unknown as Campaign;
+          const survey = normalizeCampaignSurvey(campaign.questions);
+          return {
+            id: row.id as string,
+            access_count: Number(row.access_count || 0),
+            created_at: row.created_at as string,
+            company: row.company as unknown as Company,
+            campaign: {
+              ...campaign,
+              sections: survey.sections,
+              questions: survey.questions,
+            },
+          };
+        });
 
       const mappedResponses: ResponseWithDetails[] = (responsesRes.data || [])
         .filter((row) => isRecord(row.link))
@@ -365,8 +370,13 @@ export function DashboardOverview() {
               company: link.company,
               campaign: {
                 ...link.campaign,
-                questions: ((link.campaign.questions ||
-                  []) as unknown[]) as CampaignQuestion[],
+                ...(() => {
+                  const survey = normalizeCampaignSurvey(link.campaign.questions);
+                  return {
+                    sections: survey.sections,
+                    questions: survey.questions,
+                  };
+                })(),
               },
             },
           };

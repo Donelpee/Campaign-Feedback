@@ -403,10 +403,10 @@ export function SettingsManager() {
           </div>
           <Separator />
           <div className="space-y-2">
-            <p className="text-sm font-medium">Default campaign creation mode</p>
-            <p className="text-xs text-muted-foreground">
-              Guided Buddy is currently the only available creation mode for new campaigns.
-            </p>
+              <p className="text-sm font-medium">Default campaign creation mode</p>
+              <p className="text-xs text-muted-foreground">
+                Brady Guide is currently the only available creation mode for new campaigns.
+              </p>
             <div className="grid gap-2 sm:max-w-sm">
               <Button
                 type="button"
@@ -417,9 +417,9 @@ export function SettingsManager() {
                 disabled={isLoadingSettings || isSavingSettings}
                 className="justify-start"
               >
-                Guided Buddy
-              </Button>
-            </div>
+                Brady Guide
+                </Button>
+              </div>
           </div>
           <Separator />
           <div className="easy-field-row">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,12 +13,20 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
-import type { CampaignQuestion } from "@/lib/supabase-types";
+import type {
+  CampaignQuestion,
+  QuestionLogicOperator,
+  SurveySection,
+} from "@/lib/supabase-types";
 import type { WizardData } from "./CampaignWizard";
 import { cn } from "@/lib/utils";
 import { QuestionPreview } from "./QuestionPreview";
 import { QuickStartSection } from "./QuickStartSection";
 import type { CreationMode } from "./CampaignWizard";
+import {
+  createDefaultSection,
+  getOrderedSurveyQuestions,
+} from "@/lib/campaign-survey";
 import {
   getQuestionValidation,
   isQuestionClear,
@@ -50,6 +58,17 @@ const questionTypeLabels: Record<CampaignQuestion["type"], string> = {
   nps: "NPS Score (0-10)",
 };
 
+const logicOperatorLabels: Record<QuestionLogicOperator, string> = {
+  equals: "Equals",
+  not_equals: "Does not equal",
+  contains: "Contains",
+  not_contains: "Does not contain",
+  answered: "Has been answered",
+  not_answered: "Has not been answered",
+  greater_than: "Greater than",
+  less_than: "Less than",
+};
+
 export function StepQuestions({
   data,
   onChange,
@@ -57,10 +76,23 @@ export function StepQuestions({
   showValidation = false,
   creationMode,
 }: StepQuestionsProps) {
+  const sections = useMemo(
+    () =>
+      data.sections && data.sections.length > 0
+        ? data.sections
+        : [createDefaultSection(0)],
+    [data.sections],
+  );
   const { questions } = data;
   const [selectedQuestionId, setSelectedQuestionId] = useState<string | null>(
     questions[0]?.id ?? null,
   );
+
+  useEffect(() => {
+    if ((data.sections?.length || 0) === 0) {
+      onChange({ sections });
+    }
+  }, [data.sections, onChange, sections]);
 
   useEffect(() => {
     if (questions.length === 0) {
@@ -73,9 +105,37 @@ export function StepQuestions({
     }
   }, [questions, selectedQuestionId]);
 
-  const updateQuestions = (updatedQuestions: CampaignQuestion[]) => {
-    onChange({ questions: updatedQuestions });
+  const updateSurvey = (
+    updatedQuestions: CampaignQuestion[],
+    updatedSections: SurveySection[] = sections,
+  ) => {
+    const fallbackSectionId = updatedSections[0]?.id || createDefaultSection(0).id;
+    const validSectionIds = new Set(updatedSections.map((section) => section.id));
+    onChange({
+      sections: updatedSections,
+      questions: updatedQuestions.map((question) => ({
+        ...question,
+        sectionId:
+          question.sectionId && validSectionIds.has(question.sectionId)
+            ? question.sectionId
+            : fallbackSectionId,
+      })),
+    });
   };
+
+  const updateQuestions = (updatedQuestions: CampaignQuestion[]) => {
+    updateSurvey(updatedQuestions);
+  };
+
+  const getQuestionIndexById = (questionId: string) =>
+    questions.findIndex((question) => question.id === questionId);
+
+  const getDefaultSectionId = () =>
+    selectedQuestionId
+      ? questions.find((question) => question.id === selectedQuestionId)?.sectionId ||
+        sections[0]?.id ||
+        createDefaultSection(0).id
+      : sections[0]?.id || createDefaultSection(0).id;
 
   const isOptionQuestionType = (type: CampaignQuestion["type"]) =>
     type === "multiple_choice" ||
@@ -87,11 +147,13 @@ export function StepQuestions({
     type === "checkbox_matrix" || type === "radio_matrix";
 
   const handleAddQuestion = () => {
+    const fallbackSectionId = getDefaultSectionId();
     const newQuestion: CampaignQuestion = {
       id: crypto.randomUUID(),
       type: "rating",
       question: "",
       required: true,
+      sectionId: fallbackSectionId,
     };
     updateQuestions([...questions, newQuestion]);
     setSelectedQuestionId(newQuestion.id);
@@ -99,6 +161,7 @@ export function StepQuestions({
 
   const handleAddStarterQuestions = () => {
     if (questions.length > 0) return;
+    const fallbackSectionId = sections[0]?.id || createDefaultSection(0).id;
     const starterQuestions: CampaignQuestion[] = [
       {
         id: crypto.randomUUID(),
@@ -107,6 +170,7 @@ export function StepQuestions({
         required: true,
         min: 1,
         max: 5,
+        sectionId: fallbackSectionId,
       },
       {
         id: crypto.randomUUID(),
@@ -114,12 +178,14 @@ export function StepQuestions({
         question: "How likely are you to use us again?",
         required: true,
         options: ["Very likely", "Maybe", "Not likely"],
+        sectionId: fallbackSectionId,
       },
       {
         id: crypto.randomUUID(),
         type: "textarea",
         question: "What should we improve first?",
         required: false,
+        sectionId: fallbackSectionId,
       },
     ];
     updateQuestions(starterQuestions);
@@ -128,6 +194,7 @@ export function StepQuestions({
 
   const handleUseTemplateStory = (template: "customer" | "employee" | "event") => {
     if (questions.length > 0) return;
+    const fallbackSectionId = sections[0]?.id || createDefaultSection(0).id;
 
     const byTemplate: Record<typeof template, CampaignQuestion[]> = {
       customer: [
@@ -138,6 +205,7 @@ export function StepQuestions({
           required: true,
           min: 1,
           max: 5,
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
@@ -145,12 +213,14 @@ export function StepQuestions({
           question: "Which part of our service helped you most?",
           required: true,
           options: ["Speed", "Quality", "Support", "Price"],
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
           type: "textarea",
           question: "What one thing should we improve next?",
           required: false,
+          sectionId: fallbackSectionId,
         },
       ],
       employee: [
@@ -161,6 +231,7 @@ export function StepQuestions({
           required: true,
           min: 1,
           max: 10,
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
@@ -168,12 +239,14 @@ export function StepQuestions({
           question: "How manageable is your workload this month?",
           required: true,
           options: ["Very manageable", "Manageable", "Heavy", "Too heavy"],
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
           type: "textarea",
           question: "What would help you do your best work?",
           required: false,
+          sectionId: fallbackSectionId,
         },
       ],
       event: [
@@ -184,6 +257,7 @@ export function StepQuestions({
           required: true,
           min: 1,
           max: 5,
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
@@ -191,12 +265,14 @@ export function StepQuestions({
           question: "What did you enjoy most?",
           required: true,
           options: ["Speakers", "Networking", "Venue", "Content quality"],
+          sectionId: fallbackSectionId,
         },
         {
           id: crypto.randomUUID(),
           type: "textarea",
           question: "What should we improve for the next event?",
           required: false,
+          sectionId: fallbackSectionId,
         },
       ],
     };
@@ -207,6 +283,7 @@ export function StepQuestions({
   };
 
   const handleAddConversationPrompt = (promptType: "welcome" | "quality" | "improvement") => {
+    const fallbackSectionId = getDefaultSectionId();
     const promptMap: Record<typeof promptType, CampaignQuestion> = {
       welcome: {
         id: crypto.randomUUID(),
@@ -214,6 +291,7 @@ export function StepQuestions({
         question: "How would you describe your experience today?",
         required: true,
         options: ["Excellent", "Good", "Okay", "Poor"],
+        sectionId: fallbackSectionId,
       },
       quality: {
         id: crypto.randomUUID(),
@@ -222,12 +300,14 @@ export function StepQuestions({
         required: true,
         min: 1,
         max: 5,
+        sectionId: fallbackSectionId,
       },
       improvement: {
         id: crypto.randomUUID(),
         type: "textarea",
         question: "What is one change that would improve your experience?",
         required: false,
+        sectionId: fallbackSectionId,
       },
     };
 
@@ -292,6 +372,102 @@ export function StepQuestions({
     if (removedId === selectedQuestionId) {
       setSelectedQuestionId(updatedQuestions[0]?.id ?? null);
     }
+  };
+
+  const handleAddSection = () => {
+    const nextSection = createDefaultSection(sections.length);
+    updateSurvey(questions, [...sections, nextSection]);
+  };
+
+  const handleUpdateSection = (
+    sectionIndex: number,
+    updates: Partial<SurveySection>,
+  ) => {
+    const updatedSections = [...sections];
+    updatedSections[sectionIndex] = { ...updatedSections[sectionIndex], ...updates };
+    updateSurvey(questions, updatedSections);
+  };
+
+  const handleRemoveSection = (sectionIndex: number) => {
+    if (sections.length <= 1) return;
+    const updatedSections = sections.filter((_, index) => index !== sectionIndex);
+    const removedSectionId = sections[sectionIndex]?.id;
+    const fallbackSectionId =
+      updatedSections[Math.max(0, sectionIndex - 1)]?.id || updatedSections[0].id;
+
+    updateSurvey(
+      questions.map((question) =>
+        question.sectionId === removedSectionId
+          ? { ...question, sectionId: fallbackSectionId }
+          : question,
+      ),
+      updatedSections,
+    );
+  };
+
+  const orderedQuestions = getOrderedSurveyQuestions(sections, questions);
+  const getSectionTitle = (sectionId?: string) =>
+    sections.find((section) => section.id === sectionId)?.title || "Section";
+  const getSectionQuestionCount = (sectionId: string) =>
+    questions.filter((question) => question.sectionId === sectionId).length;
+
+  const getEarlierQuestions = (questionId: string) => {
+    const questionIndex = orderedQuestions.findIndex((question) => question.id === questionId);
+    if (questionIndex <= 0) return [] as CampaignQuestion[];
+    return orderedQuestions
+      .slice(0, questionIndex)
+      .filter((question) => question.type !== "label");
+  };
+
+  const handleUpdateQuestionLogic = (
+    questionIndex: number,
+    updates: Partial<CampaignQuestion["visibility"]> & {
+      sourceQuestionId?: string;
+      operator?: QuestionLogicOperator;
+      value?: string;
+    },
+  ) => {
+    const question = questions[questionIndex];
+    const currentRule = question.visibility?.rules?.[0] || {
+      id: crypto.randomUUID(),
+      sourceQuestionId: "",
+      operator: "equals" as QuestionLogicOperator,
+      value: "",
+    };
+
+    const nextRule = {
+      ...currentRule,
+      sourceQuestionId:
+        updates.sourceQuestionId !== undefined
+          ? updates.sourceQuestionId
+          : currentRule.sourceQuestionId,
+      operator: updates.operator || currentRule.operator,
+      value: updates.value !== undefined ? updates.value : currentRule.value,
+    };
+
+    const nextVisibility =
+      nextRule.sourceQuestionId.trim().length > 0
+        ? {
+            mode: updates.mode || question.visibility?.mode || "all",
+            rules: [nextRule],
+          }
+        : undefined;
+
+    handleUpdateQuestion(questionIndex, {
+      visibility: nextVisibility,
+      showIfQuestionId: nextVisibility?.rules[0]?.sourceQuestionId,
+      showIfOperator: nextVisibility?.rules[0]?.operator,
+      showIfValue: nextVisibility?.rules[0]?.value,
+    });
+  };
+
+  const clearQuestionLogic = (questionIndex: number) => {
+    handleUpdateQuestion(questionIndex, {
+      visibility: undefined,
+      showIfQuestionId: undefined,
+      showIfOperator: undefined,
+      showIfValue: undefined,
+    });
   };
 
   const handleUpdateOption = (
@@ -385,7 +561,7 @@ export function StepQuestions({
             accentSurfaceClass: "border-amber-200/90 bg-amber-50",
           }
         : {
-            label: "Guided Buddy",
+            label: "Brady Guide",
             toneClass: "border-slate-200 bg-slate-50/55",
             accentTextClass: "text-slate-900",
             accentSurfaceClass: "border-slate-200/90 bg-slate-50",
@@ -428,9 +604,24 @@ export function StepQuestions({
         )}
       >
         <div className="space-y-3 relative">
-          {questions.map((question, index) => (
-            <Card
-              key={question.id}
+          {orderedQuestions.map((question, index) => {
+            const actualIndex = getQuestionIndexById(question.id);
+            if (actualIndex === -1) return null;
+
+            const earlierQuestions = getEarlierQuestions(question.id);
+            const activeRule = question.visibility?.rules?.[0];
+            const sourceQuestion = earlierQuestions.find(
+              (candidate) => candidate.id === activeRule?.sourceQuestionId,
+            );
+            const selectedOperator = activeRule?.operator || "equals";
+            const selectedValue =
+              activeRule?.value !== undefined ? String(activeRule.value) : "";
+            const requiresRuleValue =
+              selectedOperator !== "answered" && selectedOperator !== "not_answered";
+
+            return (
+              <Card
+                key={question.id}
               className={cn(
                 "cw-soft-panel",
                 selectedQuestionId === question.id ? "border-primary/50" : "",
@@ -443,6 +634,9 @@ export function StepQuestions({
                     <Badge variant="secondary" className="text-xs">
                       Q{index + 1}
                     </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {getSectionTitle(question.sectionId)}
+                    </Badge>
                     {isLeanEditor ? (
                       <Badge variant="outline" className="text-xs">
                         {isConversationBuilder ? "Conversation prompt" : "Quick question"}
@@ -451,7 +645,7 @@ export function StepQuestions({
                       <Select
                         value={question.type}
                         onValueChange={(type: CampaignQuestion["type"]) =>
-                          handleQuestionTypeChange(index, type)
+                          handleQuestionTypeChange(actualIndex, type)
                         }
                       >
                         <SelectTrigger className={easyMode ? "h-9.5 w-full text-sm sm:w-[210px]" : "h-8 w-full sm:w-[180px]"}>
@@ -475,7 +669,7 @@ export function StepQuestions({
                         id={`required-${index}`}
                         checked={question.required}
                         onCheckedChange={(required) =>
-                          handleUpdateQuestion(index, { required })
+                          handleUpdateQuestion(actualIndex, { required })
                         }
                       />
                     </div>
@@ -484,7 +678,7 @@ export function StepQuestions({
                       variant="outline"
                       size="icon"
                       className="h-8 w-8"
-                      onClick={() => handleRemoveQuestion(index)}
+                      onClick={() => handleRemoveQuestion(actualIndex)}
                       title="Delete"
                     >
                       <Trash2 className="h-4 w-4 text-destructive" />
@@ -495,7 +689,7 @@ export function StepQuestions({
                     placeholder="Enter your question..."
                     value={question.question}
                     onChange={(e) =>
-                      handleUpdateQuestion(index, { question: e.target.value })
+                      handleUpdateQuestion(actualIndex, { question: e.target.value })
                     }
                     className={easyMode ? "h-11 text-base" : ""}
                   />
@@ -503,6 +697,121 @@ export function StepQuestions({
                     <p className="text-xs font-medium text-destructive">
                       Write at least 8 characters so this question is clear.
                     </p>
+                  )}
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs">Section</Label>
+                      <Select
+                        value={question.sectionId || sections[0]?.id}
+                        onValueChange={(sectionId) =>
+                          handleUpdateQuestion(actualIndex, { sectionId })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sections.map((section) => (
+                            <SelectItem key={section.id} value={section.id}>
+                              {section.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {!isLeanEditor && (
+                      <div className="space-y-2">
+                        <Label className="text-xs">Question Logic</Label>
+                        <Select
+                          value={activeRule?.sourceQuestionId || "__none__"}
+                          onValueChange={(sourceQuestionId) => {
+                            if (sourceQuestionId === "__none__") {
+                              clearQuestionLogic(actualIndex);
+                              return;
+                            }
+
+                            handleUpdateQuestionLogic(actualIndex, {
+                              sourceQuestionId,
+                            });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Always show this question" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__none__">
+                              Always show this question
+                            </SelectItem>
+                            {earlierQuestions.map((candidate) => (
+                              <SelectItem key={candidate.id} value={candidate.id}>
+                                {candidate.question || "Untitled question"}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {earlierQuestions.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Logic becomes available after you add an earlier question.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {!isLeanEditor && activeRule && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_170px]">
+                        <div className="space-y-2">
+                          <Label className="text-xs">Show this question when</Label>
+                          <p className="text-sm font-medium text-slate-900">
+                            {sourceQuestion?.question || "Select a source question"}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs">Operator</Label>
+                          <Select
+                            value={selectedOperator}
+                            onValueChange={(operator: QuestionLogicOperator) =>
+                              handleUpdateQuestionLogic(actualIndex, {
+                                operator,
+                                value:
+                                  operator === "answered" || operator === "not_answered"
+                                    ? ""
+                                    : selectedValue,
+                              })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(logicOperatorLabels).map(([operator, label]) => (
+                                <SelectItem key={operator} value={operator}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      {requiresRuleValue && (
+                        <div className="mt-3 space-y-2">
+                          <Label className="text-xs">Expected answer</Label>
+                          <Input
+                            value={selectedValue}
+                            onChange={(event) =>
+                              handleUpdateQuestionLogic(actualIndex, {
+                                value: event.target.value,
+                              })
+                            }
+                            placeholder="Example: Yes, 5, Excellent"
+                          />
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {!isLeanEditor && isOptionQuestionType(question.type) && (
@@ -520,7 +829,7 @@ export function StepQuestions({
                             value={option}
                             placeholder={`Option ${optionIndex + 1}`}
                             onChange={(event) =>
-                              handleUpdateOption(index, optionIndex, event.target.value)
+                              handleUpdateOption(actualIndex, optionIndex, event.target.value)
                             }
                           />
                           <Button
@@ -528,7 +837,7 @@ export function StepQuestions({
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8"
-                            onClick={() => handleRemoveOption(index, optionIndex)}
+                            onClick={() => handleRemoveOption(actualIndex, optionIndex)}
                             disabled={(question.options?.length || 0) <= 1}
                             title="Remove option"
                           >
@@ -540,7 +849,7 @@ export function StepQuestions({
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => handleAddOption(index)}
+                        onClick={() => handleAddOption(actualIndex)}
                       >
                         <Plus className="mr-2 h-4 w-4" />
                         Add option
@@ -562,7 +871,12 @@ export function StepQuestions({
                                 value={row}
                                 placeholder={`Row ${rowIndex + 1}`}
                                 onChange={(event) =>
-                                  handleMatrixEntryUpdate(index, "rows", rowIndex, event.target.value)
+                                  handleMatrixEntryUpdate(
+                                    actualIndex,
+                                    "rows",
+                                    rowIndex,
+                                    event.target.value,
+                                  )
                                 }
                               />
                               <Button
@@ -570,7 +884,9 @@ export function StepQuestions({
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                onClick={() => handleMatrixEntryRemove(index, "rows", rowIndex)}
+                                onClick={() =>
+                                  handleMatrixEntryRemove(actualIndex, "rows", rowIndex)
+                                }
                                 disabled={(question.rows?.length || 0) <= 1}
                                 title="Remove row"
                               >
@@ -583,7 +899,7 @@ export function StepQuestions({
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => handleMatrixEntryAdd(index, "rows")}
+                          onClick={() => handleMatrixEntryAdd(actualIndex, "rows")}
                         >
                           <Plus className="mr-2 h-4 w-4" />
                           Add row
@@ -604,7 +920,12 @@ export function StepQuestions({
                               value={column}
                               placeholder={`Column ${columnIndex + 1}`}
                               onChange={(event) =>
-                                handleMatrixEntryUpdate(index, "columns", columnIndex, event.target.value)
+                                handleMatrixEntryUpdate(
+                                  actualIndex,
+                                  "columns",
+                                  columnIndex,
+                                  event.target.value,
+                                )
                               }
                             />
                             <Button
@@ -612,7 +933,9 @@ export function StepQuestions({
                               variant="ghost"
                               size="icon"
                               className="h-8 w-8"
-                              onClick={() => handleMatrixEntryRemove(index, "columns", columnIndex)}
+                              onClick={() =>
+                                handleMatrixEntryRemove(actualIndex, "columns", columnIndex)
+                              }
                               disabled={(question.columns?.length || 0) <= 1}
                               title="Remove column"
                             >
@@ -624,7 +947,7 @@ export function StepQuestions({
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => handleMatrixEntryAdd(index, "columns")}
+                          onClick={() => handleMatrixEntryAdd(actualIndex, "columns")}
                         >
                           <Plus className="mr-2 h-4 w-4" />
                           Add column
@@ -644,7 +967,7 @@ export function StepQuestions({
                           type="number"
                           value={question.min ?? (question.type === "nps" ? 0 : 1)}
                           onChange={(e) =>
-                            handleUpdateQuestion(index, {
+                            handleUpdateQuestion(actualIndex, {
                               min: Number(
                                 e.target.value || (question.type === "nps" ? 0 : 1),
                               ),
@@ -658,7 +981,7 @@ export function StepQuestions({
                           type="number"
                           value={question.max ?? (question.type === "rating" ? 5 : 10)}
                           onChange={(e) =>
-                            handleUpdateQuestion(index, {
+                            handleUpdateQuestion(actualIndex, {
                               max: Number(
                                 e.target.value || (question.type === "rating" ? 5 : 10),
                               ),
@@ -671,7 +994,8 @@ export function StepQuestions({
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
 
         </div>
 
@@ -840,6 +1164,87 @@ export function StepQuestions({
           </CardContent>
         </Card>
       )}
+
+      <Card className="cw-soft-panel">
+        <CardContent className="pt-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">Survey Sections</p>
+              <p className="text-xs text-muted-foreground">
+                Break long forms into smaller steps. Responders only validate the current section before continuing.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={handleAddSection}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Section
+            </Button>
+          </div>
+
+          <div className="grid gap-3">
+            {sections.map((section, sectionIndex) => (
+              <div
+                key={section.id}
+                className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.1fr)_minmax(0,0.9fr)_auto]"
+              >
+                <div className="space-y-2">
+                  <Label className="text-xs">Section title</Label>
+                  <Input
+                    value={section.title}
+                    onChange={(event) =>
+                      handleUpdateSection(sectionIndex, { title: event.target.value })
+                    }
+                    placeholder={`Section ${sectionIndex + 1}`}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Short description</Label>
+                  <Input
+                    value={section.description || ""}
+                    onChange={(event) =>
+                      handleUpdateSection(sectionIndex, {
+                        description: event.target.value,
+                      })
+                    }
+                    placeholder="What this section helps the responder do"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Continue button label</Label>
+                  <Input
+                    value={section.continueLabel || ""}
+                    onChange={(event) =>
+                      handleUpdateSection(sectionIndex, {
+                        continueLabel: event.target.value,
+                      })
+                    }
+                    placeholder="Continue"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {getSectionQuestionCount(section.id)} question
+                    {getSectionQuestionCount(section.id) === 1 ? "" : "s"}
+                  </p>
+                </div>
+
+                <div className="flex items-start justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9"
+                    onClick={() => handleRemoveSection(sectionIndex)}
+                    disabled={sections.length <= 1}
+                    title="Remove section"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {renderQuestionBuilder()}
     </div>
