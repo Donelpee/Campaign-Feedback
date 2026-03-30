@@ -1,7 +1,9 @@
 import type {
   CampaignQuestion,
   CampaignSurveyDefinition,
+  FileUploadFormat,
   QuestionLogicOperator,
+  QuestionRouteRule,
   QuestionVisibility,
   QuestionVisibilityRule,
   SurveySection,
@@ -15,7 +17,7 @@ export function createDefaultSection(index = 0): SurveySection {
     id: crypto.randomUUID(),
     title: `Section ${index + 1}`,
     description: "",
-    continueLabel: "",
+    continueLabel: "Continue",
   };
 }
 
@@ -101,23 +103,74 @@ function normalizeVisibility(question: CampaignQuestion): QuestionVisibility | u
   };
 }
 
+function normalizeRouteRule(rule: Partial<QuestionRouteRule>): QuestionRouteRule | null {
+  if (!rule.targetSectionId) return null;
+
+  const answerValue =
+    typeof rule.answerValue === "number" || typeof rule.answerValue === "string"
+      ? rule.answerValue
+      : "";
+
+  return {
+    id: rule.id || crypto.randomUUID(),
+    answerValue,
+    targetSectionId: rule.targetSectionId,
+    targetQuestionId:
+      typeof rule.targetQuestionId === "string" && rule.targetQuestionId.trim().length > 0
+        ? rule.targetQuestionId
+        : undefined,
+  };
+}
+
+function normalizeRouteRules(question: CampaignQuestion): QuestionRouteRule[] | undefined {
+  const rules = (question.routeRules || [])
+    .map((rule) => normalizeRouteRule(rule))
+    .filter((rule): rule is QuestionRouteRule => Boolean(rule));
+
+  return rules.length > 0 ? rules : undefined;
+}
+
 function normalizeSection(section: Partial<SurveySection> | undefined, index: number): SurveySection {
   return {
     id: section?.id || crypto.randomUUID(),
     title: section?.title?.trim() || `Section ${index + 1}`,
     description: section?.description || "",
-    continueLabel: section?.continueLabel || "",
+    continueLabel: section?.continueLabel?.trim() || "Continue",
   };
 }
 
 function normalizeQuestion(question: CampaignQuestion, fallbackSectionId: string): CampaignQuestion {
   const visibility = normalizeVisibility(question);
+  const routeRules = normalizeRouteRules(question);
   const legacy = toLegacyLogicProps(visibility);
+  const allowedFileTypes = Array.isArray(question.allowedFileTypes)
+    ? question.allowedFileTypes.filter(
+        (value): value is FileUploadFormat =>
+          value === "pdf" ||
+          value === "png" ||
+          value === "jpeg" ||
+          value === "excel" ||
+          value === "word",
+      )
+    : undefined;
+  const maxFiles =
+    typeof question.maxFiles === "number" && Number.isFinite(question.maxFiles)
+      ? question.maxFiles
+      : undefined;
+  const maxFileSizeMb =
+    typeof question.maxFileSizeMb === "number" &&
+    Number.isFinite(question.maxFileSizeMb)
+      ? question.maxFileSizeMb
+      : undefined;
 
   return {
     ...question,
     sectionId: question.sectionId || fallbackSectionId,
+    allowedFileTypes,
+    maxFiles,
+    maxFileSizeMb,
     visibility,
+    routeRules,
     ...legacy,
   };
 }
@@ -191,6 +244,29 @@ export function getOrderedSurveyQuestions(
   const sectionOrder = sections.map((section) => section.id);
   return sectionOrder.flatMap((sectionId) =>
     questions.filter((question) => question.sectionId === sectionId),
+  );
+}
+
+function normalizeComparableValue(value: unknown): string | number {
+  if (typeof value === "number") return value;
+  const asString = String(value ?? "").trim();
+  const asNumber = Number(asString);
+  return Number.isFinite(asNumber) && asString.length > 0 ? asNumber : asString.toLowerCase();
+}
+
+export function findQuestionRouteTarget(
+  question: CampaignQuestion,
+  answer: unknown,
+): QuestionRouteRule | null {
+  if (!question.routeRules || question.routeRules.length === 0) return null;
+
+  const normalizedAnswer = normalizeComparableValue(answer);
+
+  return (
+    question.routeRules.find((rule) => {
+      const normalizedRuleValue = normalizeComparableValue(rule.answerValue);
+      return normalizedRuleValue === normalizedAnswer;
+    }) || null
   );
 }
 

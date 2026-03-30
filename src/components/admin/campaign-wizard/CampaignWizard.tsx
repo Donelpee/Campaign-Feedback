@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ClipboardList,
+  Eye,
   Sparkles,
   ShieldCheck,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
   getQuestionValidation,
   type WizardWarningType,
 } from "./wizardValidation";
+import { removeDraft } from "./draftUtils";
 
 export type CreationMode =
   | "guided_buddy"
@@ -51,15 +53,16 @@ export interface WizardData {
 }
 
 interface CampaignWizardProps {
-  open: boolean;
+  open?: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete: (data: WizardData) => Promise<void>;
   initialDraft?: WizardData | null;
   defaultCreationMode?: CreationMode | null;
   onDefaultCreationModeChange?: (mode: CreationMode) => Promise<void> | void;
+  mode?: "dialog" | "page";
 }
 
-const STEPS = ["Basic Info", "Build Form", "Review"];
+const STEPS = ["Basic Info", "Build Form"];
 const WIZARD_DRAFT_KEY_V2 = "campaign-wizard-draft-v2";
 const WIZARD_DRAFT_KEY_V1 = "campaign-wizard-draft-v1";
 const WIZARD_DRAFT_VERSION = 2;
@@ -217,8 +220,12 @@ export function CampaignWizard({
   initialDraft,
   defaultCreationMode,
   onDefaultCreationModeChange,
+  mode = "dialog",
 }: CampaignWizardProps) {
+  const isPageMode = mode === "page";
+  const isOpen = isPageMode ? true : Boolean(open);
   const [currentStep, setCurrentStep] = useState(0);
+  const [isReviewPageOpen, setIsReviewPageOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showValidation, setShowValidation] = useState(false);
   const [wizardData, setWizardData] = useState<WizardData>(
@@ -226,14 +233,16 @@ export function CampaignWizard({
   );
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [isIdleDetected, setIsIdleDetected] = useState(false);
+  const [dismissedBuddyKey, setDismissedBuddyKey] = useState<string | null>(null);
 
   // On open, set wizardData to initialDraft or blank
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     if (initialDraft) {
       const normalized = normalizeDraftData(initialDraft);
       setWizardData(normalized);
       setCurrentStep(0);
+      setIsReviewPageOpen(false);
       setLastSavedAt(new Date().toISOString());
     } else {
       const stored = readStoredDraft();
@@ -242,6 +251,7 @@ export function CampaignWizard({
         setCurrentStep(
           Math.max(0, Math.min(STEPS.length - 1, Number(stored.step) || 0)),
         );
+        setIsReviewPageOpen(false);
         setLastSavedAt(stored.updatedAt || null);
       } else {
         setWizardData({
@@ -249,17 +259,18 @@ export function CampaignWizard({
           creationMode: coerceCreationMode(defaultCreationMode || undefined),
         });
         setCurrentStep(0);
+        setIsReviewPageOpen(false);
         setLastSavedAt(null);
       }
     }
-  }, [open, initialDraft, defaultCreationMode]);
+  }, [isOpen, initialDraft, defaultCreationMode]);
 
   useEffect(() => {
     document.documentElement.classList.remove("dark");
   }, []);
 
   useEffect(() => {
-    if (!open) return;
+    if (!isOpen) return;
     if (!hasWizardProgress(wizardData)) return;
 
     const updatedAt = new Date().toISOString();
@@ -273,7 +284,7 @@ export function CampaignWizard({
     window.localStorage.setItem(WIZARD_DRAFT_KEY_V2, JSON.stringify(payload));
     window.localStorage.removeItem(WIZARD_DRAFT_KEY_V1);
     setLastSavedAt(updatedAt);
-  }, [open, wizardData, currentStep]);
+  }, [isOpen, wizardData, currentStep]);
 
   const basicInfoValidation = getBasicInfoValidation(wizardData);
   const questionValidation = getQuestionValidation(wizardData.questions);
@@ -284,18 +295,18 @@ export function CampaignWizard({
         return basicInfoValidation.isValid;
       case 1:
         return questionValidation.isValid;
-      case 2:
-        return Boolean(
-          wizardData.creationMode &&
-            basicInfoValidation.isValid &&
-            questionValidation.isValid,
-        );
       default:
         return false;
     }
   };
 
-  const nextLabels = ["Looks good, continue", "Great, let's review"];
+  const canSubmitCampaign = Boolean(
+    wizardData.creationMode &&
+      basicInfoValidation.isValid &&
+      questionValidation.isValid,
+  );
+
+  const nextLabels = ["Looks good, continue"];
 
   const getStepProgress = () => {
     if (currentStep === 0) {
@@ -327,7 +338,7 @@ export function CampaignWizard({
       return questionValidation.clearQuestionCount / wizardData.questions.length;
     }
 
-    return canProceed() ? 1 : 0.7;
+    return canSubmitCampaign ? 1 : 0.7;
   };
 
   const stepThemes = [
@@ -345,16 +356,18 @@ export function CampaignWizard({
       subtitle: "Use easy actions to build a strong survey with no guesswork.",
       bgClass: "cw-page-surface-build",
     },
-    {
-      icon: ShieldCheck,
-      chip: "Review Page",
-      title: "Launch Check",
-      subtitle: "Review every detail clearly before creating the campaign.",
-      bgClass: "cw-page-surface-review",
-    },
   ] as const;
 
-  const activeStepTheme = stepThemes[currentStep] || stepThemes[0];
+  const reviewPageTheme = {
+    icon: ShieldCheck,
+    chip: "Review Page",
+    title: "Launch Check",
+    subtitle: "Review every detail clearly before creating the campaign.",
+    bgClass: "cw-page-surface-review",
+  } as const;
+  const activeStepTheme = isReviewPageOpen
+    ? reviewPageTheme
+    : stepThemes[currentStep] || stepThemes[0];
   const isGuidedBuddy = wizardData.creationMode === "guided_buddy";
   const isQuickStart = wizardData.creationMode === "quick_start";
   const isTemplateStory = wizardData.creationMode === "template_story";
@@ -372,13 +385,9 @@ export function CampaignWizard({
           : "none"
         : "none";
   const isCurrentStepIncomplete =
-    currentStep < STEPS.length - 1
-      ? currentStep === 0
-        ? !basicInfoValidation.isValid
-        : !questionValidation.isValid
-      : false;
-  const isCurrentStepComplete =
-    currentStep < STEPS.length - 1 && !isCurrentStepIncomplete;
+    !isReviewPageOpen &&
+    (currentStep === 0 ? !basicInfoValidation.isValid : !questionValidation.isValid);
+  const isCurrentStepComplete = !isReviewPageOpen && !isCurrentStepIncomplete;
   const showWaitingBuddy = isCurrentStepIncomplete && isIdleDetected;
   const warningCopy = getWarningCopy(currentStepWarningType);
 
@@ -488,13 +497,38 @@ export function CampaignWizard({
     isTemplateStory,
     basicInfoValidation.warningType,
   ]);
+  const shouldShowBuddy =
+    Boolean(modeStepCopy) &&
+    !isReviewPageOpen &&
+    (showWaitingBuddy || currentStepWarningType !== "none");
+  const buddyDisplayKey = shouldShowBuddy
+    ? [
+        currentStep,
+        currentStepWarningType,
+        showWaitingBuddy ? "waiting" : "active",
+        warningCopy.title,
+        warningCopy.subtitle,
+      ].join(":")
+    : null;
+  const isBuddyVisible = Boolean(shouldShowBuddy && buddyDisplayKey !== dismissedBuddyKey);
 
   const updateWizardData = (data: Partial<WizardData>) => {
     setWizardData((prev) => ({ ...prev, ...data }));
   };
 
   useEffect(() => {
-    if (!open || !isCurrentStepIncomplete) {
+    if (!buddyDisplayKey) {
+      setDismissedBuddyKey(null);
+      return;
+    }
+
+    if (dismissedBuddyKey && dismissedBuddyKey !== buddyDisplayKey) {
+      setDismissedBuddyKey(null);
+    }
+  }, [buddyDisplayKey, dismissedBuddyKey]);
+
+  useEffect(() => {
+    if (!isOpen || !isCurrentStepIncomplete) {
       setIsIdleDetected(false);
       return;
     }
@@ -524,7 +558,7 @@ export function CampaignWizard({
       });
       document.removeEventListener("focusin", resetIdleTimer);
     };
-  }, [open, currentStep, isCurrentStepIncomplete]);
+  }, [isOpen, currentStep, isCurrentStepIncomplete]);
 
   const renderStep = () => {
     switch (currentStep) {
@@ -548,15 +582,7 @@ export function CampaignWizard({
             easyMode
             showValidation={showValidation}
             creationMode={wizardData.creationMode}
-          />
-        );
-      case 2:
-        return (
-          <StepReview
-            data={wizardData}
-            easyMode
-            onJumpToBuild={() => setCurrentStep(1)}
-            creationMode={wizardData.creationMode}
+            onDiscardCampaign={handleDiscardCampaign}
           />
         );
       default:
@@ -566,6 +592,10 @@ export function CampaignWizard({
 
   function handleBack() {
     setShowValidation(false);
+    if (isReviewPageOpen) {
+      setIsReviewPageOpen(false);
+      return;
+    }
     if (currentStep === 0) {
       return;
     }
@@ -588,6 +618,7 @@ export function CampaignWizard({
     try {
       await onComplete(wizardData);
       setCurrentStep(0);
+      setIsReviewPageOpen(false);
       setWizardData(EMPTY_WIZARD_DATA);
       setLastSavedAt(null);
       window.localStorage.removeItem(WIZARD_DRAFT_KEY_V2);
@@ -598,71 +629,122 @@ export function CampaignWizard({
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[100dvh] w-full max-w-none rounded-none border-0 p-0 overflow-hidden flex flex-col shadow-none">
-        <div
-          className={cn(
-            "cw-gradient-drift border-b",
-            activeStepTheme.bgClass,
-          )}
-        >
-          <DialogHeader className="px-3 pb-2.5 pt-3 sm:px-4 md:px-6 md:pb-3 md:pt-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-1.5">
-                <DialogTitle className="text-lg font-semibold tracking-tight sm:text-xl md:text-[1.65rem]">
-                  {wizardData.campaignId
-                    ? "Edit Campaign / Survey"
-                    : "Create Campaign / Survey"}
-                  {currentStep === 1
-                    ? ""
-                    : ` - ${STEPS[currentStep]}`}
-                </DialogTitle>
-                <DialogDescription className="max-w-3xl text-xs text-slate-600 sm:text-sm">
-                  {activeStepTheme.subtitle}
-                </DialogDescription>
-              </div>
-              {lastSavedAt && (
-                <p className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-sm font-extrabold text-emerald-900 shadow-[0_8px_18px_rgba(16,185,129,0.16)]">
-                  Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
-                </p>
-              )}
-            </div>
-          </DialogHeader>
-        </div>
+  function handleDiscardCampaign() {
+    window.localStorage.removeItem(WIZARD_DRAFT_KEY_V2);
+    window.localStorage.removeItem(WIZARD_DRAFT_KEY_V1);
+    if (wizardData.draftId) {
+      removeDraft(wizardData.draftId);
+    }
+    setCurrentStep(0);
+    setIsReviewPageOpen(false);
+    setShowValidation(false);
+    setWizardData(EMPTY_WIZARD_DATA);
+    setLastSavedAt(null);
+    onOpenChange(false);
+  }
 
+  const headerContent = (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-1.5">
+        {isPageMode ? (
+          <h1 className="text-base font-semibold tracking-tight sm:text-lg md:text-[1.45rem]">
+            {isReviewPageOpen
+              ? wizardData.campaignId
+                ? "Review Campaign / Survey"
+                : "Review Before Creating"
+              : wizardData.campaignId
+                ? "Edit Campaign / Survey"
+                : "Create Campaign / Survey"}
+            {!isReviewPageOpen && currentStep === 0 ? ` - ${STEPS[currentStep]}` : ""}
+          </h1>
+        ) : (
+          <DialogTitle className="text-base font-semibold tracking-tight sm:text-lg md:text-[1.45rem]">
+            {isReviewPageOpen
+              ? wizardData.campaignId
+                ? "Review Campaign / Survey"
+                : "Review Before Creating"
+              : wizardData.campaignId
+                ? "Edit Campaign / Survey"
+                : "Create Campaign / Survey"}
+            {!isReviewPageOpen && currentStep === 0 ? ` - ${STEPS[currentStep]}` : ""}
+          </DialogTitle>
+        )}
+        {isPageMode ? (
+          <p className="max-w-5xl text-[11px] text-slate-600 sm:text-xs md:text-sm">
+            {activeStepTheme.subtitle}
+          </p>
+        ) : (
+          <DialogDescription className="max-w-5xl text-[11px] text-slate-600 sm:text-xs md:text-sm">
+            {activeStepTheme.subtitle}
+          </DialogDescription>
+        )}
+      </div>
+      {lastSavedAt && (
+        <p className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-extrabold text-emerald-900 shadow-[0_8px_18px_rgba(16,185,129,0.16)] sm:text-sm">
+          Autosaved {new Date(lastSavedAt).toLocaleTimeString()}
+        </p>
+      )}
+    </div>
+  );
+
+  const wizardShell = (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="border-b border-slate-200/90 bg-white/96 backdrop-blur">
+        {isPageMode ? (
+          <div className="px-3 pb-2 pt-2.5 sm:px-4 md:px-6 md:pb-2 md:pt-3">
+            {headerContent}
+          </div>
+        ) : (
+          <DialogHeader className="px-3 pb-2 pt-2.5 sm:px-4 md:px-6 md:pb-2 md:pt-3">
+            {headerContent}
+          </DialogHeader>
+        )}
+      </div>
+
+      <div
+        className={cn(
+          "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-2 py-2 sm:px-3 md:px-5 md:py-3",
+          activeStepTheme.bgClass,
+        )}
+      >
         <div
-          className={cn(
-            "flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 py-2 sm:px-4 md:px-6 md:py-2.5 xl:overflow-hidden",
-            activeStepTheme.bgClass,
-          )}
+          key={isReviewPageOpen ? "review" : currentStep}
+          className="cw-step-panel cw-creator-canvas mx-auto h-full w-full max-w-none"
         >
-          <div
-            key={currentStep}
-            className="cw-step-panel mx-auto w-full max-w-[1280px] xl:h-full"
-          >
-            <div className="cw-form-calm xl:h-full">
-              {modeStepCopy ? (
-                <div className="grid gap-4 xl:h-full xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_310px] xl:items-stretch xl:gap-4">
-                  <div className="xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-2">
-                    {renderStep()}
-                  </div>
-                  <div className="xl:h-full xl:min-h-0 xl:self-start">
+          {isReviewPageOpen ? (
+            <div className="h-full overflow-y-auto">
+              <StepReview
+                data={wizardData}
+                easyMode
+                onJumpToBuild={() => {
+                  setIsReviewPageOpen(false);
+                  setCurrentStep(1);
+                }}
+                creationMode={wizardData.creationMode}
+              />
+            </div>
+          ) : (
+            <div className="relative">
+              <div>
+                {renderStep()}
+              </div>
+              {isBuddyVisible ? (
+                <>
+                  <div className="mt-4 xl:hidden" data-brady-panel="true">
                     <GuidedBuddyPanel
-                      title={modeStepCopy.title}
-                      subtitle={modeStepCopy.subtitle}
+                      title={modeStepCopy?.title || ""}
+                      subtitle={modeStepCopy?.subtitle || ""}
                       isHappy={isCurrentStepComplete}
                       isWaiting={showWaitingBuddy}
                       warningTitle={warningCopy.title}
                       warningSubtitle={warningCopy.subtitle}
-                      mood={modeStepCopy.mood}
-                      scene={
-                        currentStep === 0
-                          ? "setup"
-                          : currentStep === 1
-                            ? "build"
-                            : "review"
-                      }
+                      onClose={() => {
+                        if (buddyDisplayKey) {
+                          setDismissedBuddyKey(buddyDisplayKey);
+                        }
+                      }}
+                      mood={modeStepCopy?.mood}
+                      scene={currentStep === 0 ? "setup" : "build"}
                       trackStatus={
                         currentStepWarningType !== "none"
                           ? "off_track"
@@ -674,30 +756,61 @@ export function CampaignWizard({
                       totalSteps={STEPS.length}
                     />
                   </div>
-                </div>
-              ) : (
-                renderStep()
-              )}
+                  <div
+                    className="pointer-events-none fixed bottom-6 right-6 z-40 hidden w-[340px] xl:block"
+                    data-brady-panel="true"
+                  >
+                    <div className="pointer-events-auto rounded-[28px] bg-white/45 p-2 shadow-[0_18px_48px_rgba(15,23,42,0.18)] backdrop-blur-sm">
+                      <GuidedBuddyPanel
+                        title={modeStepCopy?.title || ""}
+                        subtitle={modeStepCopy?.subtitle || ""}
+                        isHappy={isCurrentStepComplete}
+                        isWaiting={showWaitingBuddy}
+                        warningTitle={warningCopy.title}
+                        warningSubtitle={warningCopy.subtitle}
+                        onClose={() => {
+                          if (buddyDisplayKey) {
+                            setDismissedBuddyKey(buddyDisplayKey);
+                          }
+                        }}
+                        mood={modeStepCopy?.mood}
+                        scene={currentStep === 0 ? "setup" : "build"}
+                        trackStatus={
+                          currentStepWarningType !== "none"
+                            ? "off_track"
+                            : getStepProgress() >= 0.7
+                              ? "on_track"
+                              : "neutral"
+                        }
+                        step={currentStep + 1}
+                        totalSteps={STEPS.length}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : null}
             </div>
-          </div>
+          )}
         </div>
+      </div>
 
-        <div className="shrink-0 flex flex-wrap items-center justify-between gap-1.5 border-t bg-slate-100/95 px-3 py-1 sm:px-4 md:px-5 md:py-1.5">
+      <div className="shrink-0 border-t border-slate-200/90 bg-white/96 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-[1680px] flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 sm:px-3 md:px-5">
           <Button
             variant="default"
             onClick={handleBack}
-            disabled={currentStep <= 0 || isSubmitting}
-            className="h-9 flex-1 min-w-[116px] bg-slate-700 px-4 text-sm font-bold text-white hover:bg-slate-800 sm:flex-none"
+            disabled={(currentStep <= 0 && !isReviewPageOpen) || isSubmitting}
+            className="h-8 flex-1 min-w-[108px] bg-slate-700 px-3 text-sm font-bold text-white hover:bg-slate-800 sm:flex-none"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Back
+            {isReviewPageOpen ? "Back to builder" : "Back"}
           </Button>
 
-          {currentStep === STEPS.length - 1 ? (
+          {isReviewPageOpen ? (
             <Button
               onClick={handleSubmit}
-              disabled={!canProceed() || isSubmitting}
-              className="cw-soft-pulse h-9 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
+              disabled={!canSubmitCampaign || isSubmitting}
+              className="cw-soft-pulse h-8 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
             >
               {isSubmitting
                 ? wizardData.campaignId
@@ -707,10 +820,25 @@ export function CampaignWizard({
                   ? "Save Changes"
                   : "Create Campaign"}
             </Button>
+          ) : currentStep === 1 ? (
+            <Button
+              onClick={() => {
+                if (!canProceed()) {
+                  setShowValidation(true);
+                  return;
+                }
+                setShowValidation(false);
+                setIsReviewPageOpen(true);
+              }}
+              className="cw-soft-pulse h-8 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
+            >
+              <Eye className="mr-2 h-4 w-4" />
+              Review Form
+            </Button>
           ) : (
             <Button
               onClick={handleNext}
-              className="cw-soft-pulse h-9 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
+              className="cw-soft-pulse h-8 flex-1 min-w-[140px] px-4 text-sm font-bold sm:flex-none"
             >
               {isQuickStart && currentStep === 0
                 ? "Continue to questions"
@@ -718,11 +846,27 @@ export function CampaignWizard({
                   ? "Continue to templates"
                   : isConversationBuilder && currentStep === 0
                     ? "Continue to conversation"
-                : nextLabels[currentStep] || "Next"}
+                    : nextLabels[currentStep] || "Next"}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           )}
         </div>
+      </div>
+    </div>
+  );
+
+  if (isPageMode) {
+    return (
+      <div className="h-full min-h-screen bg-[#eef3f7]">
+        {wizardShell}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="h-[100dvh] w-full max-w-none rounded-none border-0 bg-[#eef3f7] p-0 shadow-none">
+        {wizardShell}
       </DialogContent>
     </Dialog>
   );

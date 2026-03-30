@@ -59,7 +59,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { FileSpreadsheet } from "lucide-react";
-import type { Company, Campaign } from "@/lib/supabase-types";
+import type { Company, Campaign, UploadedFileAnswer } from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 import {
@@ -241,6 +241,20 @@ function hasAnswerValue(value: unknown): boolean {
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "string") return value.trim().length > 0;
   return true;
+}
+
+function isUploadedFileAnswers(value: unknown): value is UploadedFileAnswer[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry) =>
+        typeof entry === "object" &&
+        entry !== null &&
+        "path" in entry &&
+        "bucket" in entry &&
+        "originalName" in entry,
+    )
+  );
 }
 
 function normalizeText(value: string): string[] {
@@ -1256,6 +1270,11 @@ export function ResponsesViewer() {
   }, [selectedResponse]);
 
   const formatDynamicAnswerValue = (value: unknown) => {
+    if (isUploadedFileAnswers(value)) {
+      return value.length > 0
+        ? value.map((item) => item.originalName).join(", ")
+        : "No file uploaded";
+    }
     if (Array.isArray(value)) {
       return value.length > 0
         ? value.map((item) => String(item)).join(", ")
@@ -1265,6 +1284,23 @@ export function ResponsesViewer() {
     if (typeof value === "object") return JSON.stringify(value);
     const asText = String(value).trim();
     return asText.length > 0 ? asText : "No answer";
+  };
+
+  const openUploadedFile = async (file: UploadedFileAnswer) => {
+    const { data, error } = await supabase.storage
+      .from(file.bucket)
+      .createSignedUrl(file.path, 60 * 60);
+
+    if (error || !data?.signedUrl) {
+      toast({
+        variant: "destructive",
+        title: "File unavailable",
+        description: "Unable to open this uploaded file right now.",
+      });
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -2186,9 +2222,39 @@ export function ResponsesViewer() {
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-sm mt-1 break-words">
-                              {formatDynamicAnswerValue(entry.answer)}
-                            </p>
+                            {entry.type === "file_upload" &&
+                            isUploadedFileAnswers(entry.answer) ? (
+                              <div className="mt-2 space-y-2">
+                                {entry.answer.map((file) => (
+                                  <div
+                                    key={file.path}
+                                    className="flex items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2"
+                                  >
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-medium">
+                                        {file.originalName}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {(file.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+                                      </p>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => void openUploadedFile(file)}
+                                    >
+                                      <Download className="mr-2 h-3.5 w-3.5" />
+                                      Open
+                                    </Button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm mt-1 break-words">
+                                {formatDynamicAnswerValue(entry.answer)}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>

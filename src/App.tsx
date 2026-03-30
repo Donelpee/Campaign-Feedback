@@ -10,6 +10,7 @@ import FeedbackForm from "./pages/FeedbackForm";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminCompanies from "./pages/AdminCompanies";
 import AdminCampaigns from "./pages/AdminCampaigns";
+import AdminCampaignBuilder from "./pages/AdminCampaignBuilder";
 import AdminLinks from "./pages/AdminLinks";
 import AdminResponses from "./pages/AdminResponses";
 import AdminAuditLogs from "./pages/AdminAuditLogs";
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/companies" element={<AdminCompanies />} />
             <Route path="/admin/campaigns" element={<AdminCampaigns />} />
+            <Route path="/admin/campaigns/builder" element={<AdminCampaignBuilder />} />
             <Route path="/admin/links" element={<AdminLinks />} />
             <Route path="/admin/responses" element={<AdminResponses />} />
             <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />

@@ -12,6 +12,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CampaignQuestion } from "@/lib/supabase-types";
+import {
+  buildFileUploadAccept,
+  formatFileUploadSummary,
+  getFileUploadMaxFiles,
+} from "@/lib/file-upload";
 
 interface QuestionPreviewProps {
   question: CampaignQuestion;
@@ -132,7 +137,19 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
   }
 
   if (question.type === "file_upload") {
-    return <Input type="file" className={className} disabled />;
+    return (
+      <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
+        <Input
+          type="file"
+          multiple={getFileUploadMaxFiles(question) > 1}
+          accept={buildFileUploadAccept(question)}
+          disabled
+        />
+        <p className="text-xs text-muted-foreground">
+          {formatFileUploadSummary(question)}
+        </p>
+      </div>
+    );
   }
 
   if (question.type === "rank") {

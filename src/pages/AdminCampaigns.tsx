@@ -1,7 +1,7 @@
 // Admin campaigns page (protected)
 // Accessibility: Semantic HTML, clear headings, accessible layout
-import { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { AdminGlobalNotificationBell } from "@/components/admin/AdminGlobalNotificationBell";
@@ -11,23 +11,9 @@ import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Loader2 } from "lucide-react";
 
 export default function AdminCampaigns() {
-  // Routing, state, and wizard logic
   const navigate = useNavigate();
-  const location = useLocation();
   const { user, isLoading } = useAuth();
-  const [wizardDraft, setWizardDraft] = useState(null);
-  const [isWizardOpen, setIsWizardOpen] = useState(false);
 
-  // Open wizard with draft if navigated here with state
-  useEffect(() => {
-    if (location.state?.draft) {
-      setWizardDraft(location.state.draft);
-      setIsWizardOpen(true);
-      window.history.replaceState({}, document.title);
-    }
-  }, [location.state]);
-
-  // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !user) {
       navigate("/auth");
@@ -57,23 +43,13 @@ export default function AdminCampaigns() {
       >
         <AdminSidebar
           onResumeDraft={(draft) => {
-            if (window.location.pathname !== "/admin/campaigns") {
-              navigate("/admin/campaigns", { state: { draft } });
-            } else {
-              setWizardDraft(draft);
-              setIsWizardOpen(true);
-            }
+            navigate("/admin/campaigns/builder", { state: { draft } });
           }}
         />
         <AdminGlobalNotificationBell />
         <SidebarInset className="bg-transparent">
           <PermissionGuard permission="campaigns">
-            <CampaignsManager
-              isWizardOpen={isWizardOpen}
-              setIsWizardOpen={setIsWizardOpen}
-              wizardDraft={wizardDraft}
-              setWizardDraft={setWizardDraft}
-            />
+            <CampaignsManager />
           </PermissionGuard>
         </SidebarInset>
       </div>

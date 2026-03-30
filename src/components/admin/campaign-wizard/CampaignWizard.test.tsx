@@ -193,13 +193,16 @@ describe("CampaignWizard", () => {
   it("blocks progression when required setup fields are empty", () => {
     renderWizard();
 
+    expect(screen.queryByTestId("buddy-panel")).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: /looks good, continue/i }));
 
     expect(
-      screen.getByText(
+      screen.getAllByText(
         /please fill all required fields before clicking on the continue button\./i,
-      ),
-    ).toBeInTheDocument();
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("buddy-panel").length).toBeGreaterThan(0);
     expect(screen.queryByText("Review step")).not.toBeInTheDocument();
   });
 
@@ -209,26 +212,28 @@ describe("CampaignWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /looks good, continue/i }));
     fireEvent.click(screen.getByRole("button", { name: /use short question/i }));
-    fireEvent.click(screen.getByRole("button", { name: /great, let's review/i }));
+    fireEvent.click(screen.getByRole("button", { name: /review form/i }));
 
     expect(
-      screen.getByText(/each question must be at least 8 characters long\./i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/each question must be at least 8 characters long\./i).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText("Review step")).not.toBeInTheDocument();
   });
 
-  it("advances to review when setup data and questions are valid", () => {
+  it("advances to review when setup data and questions are valid", async () => {
     renderWizard();
     fillValidBasicInfo();
 
     fireEvent.click(screen.getByRole("button", { name: /looks good, continue/i }));
     fireEvent.click(screen.getByRole("button", { name: /use valid question/i }));
-    fireEvent.click(screen.getByRole("button", { name: /great, let's review/i }));
+    fireEvent.click(screen.getByRole("button", { name: /review form/i }));
 
-    expect(screen.getByText("Review step")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /create campaign/i }),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Review step")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /create campaign/i }),
+      ).toBeInTheDocument();
+    });
   });
 
   it("submits a valid campaign on the happy path", async () => {
@@ -237,7 +242,7 @@ describe("CampaignWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /looks good, continue/i }));
     fireEvent.click(screen.getByRole("button", { name: /use valid question/i }));
-    fireEvent.click(screen.getByRole("button", { name: /great, let's review/i }));
+    fireEvent.click(screen.getByRole("button", { name: /review form/i }));
     fireEvent.click(screen.getByRole("button", { name: /create campaign/i }));
 
     await waitFor(() => {
@@ -263,5 +268,25 @@ describe("CampaignWizard", () => {
     await waitFor(() => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
+  });
+
+  it("renders in page mode without relying on dialog context", () => {
+    const onComplete = vi.fn().mockResolvedValue(undefined);
+    const onOpenChange = vi.fn();
+
+    render(
+      <CampaignWizard
+        mode="page"
+        onOpenChange={onOpenChange}
+        onComplete={onComplete}
+        initialDraft={null}
+        defaultCreationMode="guided_buddy"
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: /create campaign \/ survey - basic info/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("buddy-panel")).not.toBeInTheDocument();
   });
 });

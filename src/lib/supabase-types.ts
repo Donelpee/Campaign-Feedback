@@ -55,11 +55,30 @@ export interface QuestionVisibility {
   rules: QuestionVisibilityRule[];
 }
 
+export interface QuestionRouteRule {
+  id: string;
+  answerValue: string | number;
+  targetSectionId: string;
+  targetQuestionId?: string;
+}
+
 export interface SurveySection {
   id: string;
   title: string;
   description?: string;
   continueLabel?: string;
+}
+
+export type FileUploadFormat = "pdf" | "png" | "jpeg" | "excel" | "word";
+
+export interface UploadedFileAnswer {
+  name: string;
+  originalName: string;
+  sizeBytes: number;
+  mimeType: string;
+  bucket: string;
+  path: string;
+  uploadedAt: string;
 }
 
 export interface CampaignQuestion {
@@ -87,8 +106,12 @@ export interface CampaignQuestion {
   columns?: string[];
   min?: number;
   max?: number;
+  allowedFileTypes?: FileUploadFormat[];
+  maxFiles?: number;
+  maxFileSizeMb?: number;
   sectionId?: string;
   visibility?: QuestionVisibility;
+  routeRules?: QuestionRouteRule[];
   showIfQuestionId?: string;
   showIfOperator?: QuestionLogicOperator;
   showIfValue?: string | number;

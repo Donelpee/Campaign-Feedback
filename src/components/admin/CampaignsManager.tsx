@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Card,
@@ -33,54 +34,15 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock, Building2 } from "lucide-react";
-import { CampaignWizard } from "./campaign-wizard";
-import type {
-  CreationMode,
-  WizardData,
-} from "./campaign-wizard/CampaignWizard";
+import type { WizardData } from "./campaign-wizard/CampaignWizard";
 import type { Campaign } from "@/lib/supabase-types";
-import { normalizeCampaignSurvey, serializeCampaignSurvey } from "@/lib/campaign-survey";
-
-const LOCAL_CAMPAIGNS_KEY = "client-pulse-local-campaigns";
-const WIZARD_DRAFT_KEYS = ["campaign-wizard-draft-v2", "campaign-wizard-draft-v1"];
-const DEFAULT_CREATION_MODE_KEY = "campaign-default-creation-mode";
-
-function readLocalCampaigns(): Campaign[] {
-  try {
-    const raw = window.localStorage.getItem(LOCAL_CAMPAIGNS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as Campaign[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalCampaigns(campaigns: Campaign[]) {
-  window.localStorage.setItem(LOCAL_CAMPAIGNS_KEY, JSON.stringify(campaigns));
-}
-
-function hasSavedWizardDraft(): boolean {
-  try {
-    return WIZARD_DRAFT_KEYS.some((key) => {
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return false;
-      const parsed = JSON.parse(raw) as { data?: WizardData };
-      const draft = parsed?.data;
-      if (!draft) return false;
-      return Boolean(
-        draft.selectedCompanyId ||
-          draft.name?.trim() ||
-          draft.description?.trim() ||
-          draft.startDate ||
-          draft.endDate ||
-          draft.questions?.length,
-      );
-    });
-  } catch {
-    return false;
-  }
-}
+import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import {
+  clearWizardDrafts,
+  hasSavedWizardDraft,
+  readLocalCampaigns,
+  writeLocalCampaigns,
+} from "@/lib/campaign-builder";
 
 const campaignTypeLabels: Record<string, string> = {
   feedback: "Customer Feedback",
@@ -89,19 +51,10 @@ const campaignTypeLabels: Record<string, string> = {
   event_evaluation: "Event Evaluation",
 };
 
-export function CampaignsManager({
-  isWizardOpen,
-  setIsWizardOpen,
-  wizardDraft,
-  setWizardDraft,
-}: {
-  isWizardOpen: boolean;
-  setIsWizardOpen: (open: boolean) => void;
-  wizardDraft: WizardData | null;
-  setWizardDraft: (draft: WizardData | null) => void;
-}) {
+export function CampaignsManager() {
+  const navigate = useNavigate();
   const { toast } = useToast();
-  const { bypassAuth, user } = useAuth();
+  const { bypassAuth } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [responseCountByCampaign, setResponseCountByCampaign] = useState<
     Record<string, number>
@@ -111,35 +64,6 @@ export function CampaignsManager({
   >({});
   const [showDraftDecision, setShowDraftDecision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [defaultCreationMode, setDefaultCreationMode] =
-    useState<CreationMode | null>(null);
-
-  const loadDefaultCreationMode = useCallback(async () => {
-    if (bypassAuth) {
-      const local = window.localStorage.getItem(
-        DEFAULT_CREATION_MODE_KEY,
-      ) as CreationMode | null;
-      setDefaultCreationMode(local || null);
-      return;
-    }
-
-    if (!user?.id) return;
-
-    try {
-      const { data, error } = await supabase
-        .from("user_settings")
-        .select("default_creation_mode")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (error) throw error;
-      setDefaultCreationMode(
-        (data?.default_creation_mode as CreationMode) || null,
-      );
-    } catch (error) {
-      console.error("Error loading default creation mode:", error);
-      setDefaultCreationMode(null);
-    }
-  }, [bypassAuth, user?.id]);
 
   const loadCampaigns = useCallback(async () => {
     if (bypassAuth) {
@@ -238,215 +162,6 @@ export function CampaignsManager({
     loadCampaigns();
   }, [loadCampaigns]);
 
-  useEffect(() => {
-    loadDefaultCreationMode();
-  }, [loadDefaultCreationMode]);
-
-  const handleDefaultCreationModeChange = async (mode: CreationMode) => {
-    setDefaultCreationMode(mode);
-    if (bypassAuth) {
-      window.localStorage.setItem(DEFAULT_CREATION_MODE_KEY, mode);
-      return;
-    }
-    if (!user?.id) return;
-    try {
-      const { error } = await supabase.from("user_settings").upsert(
-        { user_id: user.id, default_creation_mode: mode },
-        { onConflict: "user_id" },
-      );
-      if (error) throw error;
-    } catch (error) {
-      console.error("Error saving default creation mode:", error);
-    }
-  };
-
-  const handleCreateCampaign = async (data: WizardData) => {
-    if (bypassAuth) {
-      const now = new Date().toISOString();
-      const campaign: Campaign = {
-        id: data.campaignId || crypto.randomUUID(),
-        name: data.name.trim(),
-        description: data.description.trim() || null,
-        campaign_type: data.campaignType,
-        questions: data.questions,
-        sections: data.sections,
-        start_date: data.startDate,
-        end_date: data.endDate,
-        created_at: now,
-        updated_at: now,
-      };
-
-      const existing = readLocalCampaigns().filter((c) => c.id !== campaign.id);
-      const updatedCampaigns = [campaign, ...existing];
-      writeLocalCampaigns(updatedCampaigns);
-      setCampaigns(updatedCampaigns);
-
-      toast({
-        title: "Success",
-        description: data.campaignId
-          ? "Campaign updated successfully (local bypass mode)."
-          : "Campaign created successfully (local bypass mode).",
-      });
-      setIsWizardOpen(false);
-      setWizardDraft(null);
-      return;
-    }
-
-    try {
-      if (!data.selectedCompanyId) {
-        throw new Error("Company is required to create a campaign.");
-      }
-
-      const trimmedName = data.name.trim();
-      if (!trimmedName) {
-        throw new Error("Campaign name is required.");
-      }
-
-      if (data.campaignId) {
-        const { data: duplicateByName, error: duplicateByNameError } =
-          await supabase
-            .from("campaigns")
-            .select("id")
-            .eq("name", trimmedName)
-            .neq("id", data.campaignId)
-            .maybeSingle();
-        if (duplicateByNameError) throw duplicateByNameError;
-        if (duplicateByName) {
-          throw new Error("A campaign with this exact name already exists.");
-        }
-
-        const { data: links, error: linksError } = await supabase
-          .from("company_campaign_links")
-          .select("id")
-          .eq("campaign_id", data.campaignId);
-        if (linksError) throw linksError;
-
-        const linkIds = (links || []).map((l) => l.id);
-        if (linkIds.length > 0) {
-          const { count, error: countError } = await supabase
-            .from("feedback_responses")
-            .select("id", { count: "exact", head: true })
-            .in("link_id", linkIds);
-          if (countError) throw countError;
-
-          if ((count || 0) > 0) {
-            const { data: existingCampaign, error: existingCampaignError } =
-              await supabase
-                .from("campaigns")
-                .select("name, description, campaign_type, questions, start_date")
-                .eq("id", data.campaignId)
-                .single();
-            if (existingCampaignError) throw existingCampaignError;
-
-            const sameQuestions =
-              JSON.stringify(existingCampaign.questions || []) ===
-              JSON.stringify(data.questions || []);
-            const sameCampaignType =
-              (existingCampaign.campaign_type || "feedback") === data.campaignType;
-            const sameName = (existingCampaign.name || "").trim() === trimmedName;
-            const sameDescription =
-              (existingCampaign.description || "").trim() ===
-              (data.description.trim() || "");
-            const sameStartDate = existingCampaign.start_date === data.startDate;
-
-            if (
-              !sameQuestions ||
-              !sameCampaignType ||
-              !sameName ||
-              !sameDescription ||
-              !sameStartDate
-            ) {
-              throw new Error(
-                "This campaign has responses. Only the end date can be changed to extend or reactivate it.",
-              );
-            }
-          }
-        }
-
-        const { error: updateError } = await supabase
-          .from("campaigns")
-          .update({
-            name: trimmedName,
-            description: data.description.trim() || null,
-            campaign_type: data.campaignType,
-            questions: JSON.parse(
-              JSON.stringify(
-                serializeCampaignSurvey({
-                  sections: data.sections,
-                  questions: data.questions,
-                }),
-              ),
-            ),
-            start_date: data.startDate,
-            end_date: data.endDate,
-          })
-          .eq("id", data.campaignId);
-        if (updateError) throw updateError;
-
-        toast({
-          title: "Success",
-          description: "Campaign updated successfully.",
-        });
-        setIsWizardOpen(false);
-        setWizardDraft(null);
-        await loadCampaigns();
-        return;
-      }
-
-      const { data: duplicateByName, error: duplicateByNameError } = await supabase
-        .from("campaigns")
-        .select("id")
-        .eq("name", trimmedName)
-        .maybeSingle();
-      if (duplicateByNameError) throw duplicateByNameError;
-      if (duplicateByName) {
-        throw new Error("A campaign with this exact name already exists.");
-      }
-
-      const { error: campaignError } = await supabase
-        .from("campaigns")
-        .insert([
-          {
-            name: trimmedName,
-            description: data.description.trim() || null,
-            campaign_type: data.campaignType,
-            questions: JSON.parse(
-              JSON.stringify(
-                serializeCampaignSurvey({
-                  sections: data.sections,
-                  questions: data.questions,
-                }),
-              ),
-            ),
-            start_date: data.startDate,
-            end_date: data.endDate,
-          },
-        ]);
-
-      if (campaignError) throw campaignError;
-
-      toast({
-        title: "Success",
-        description:
-          "Campaign created successfully. Generate a link from the Links page.",
-      });
-
-      setIsWizardOpen(false);
-      setWizardDraft(null);
-      await loadCampaigns();
-    } catch (error) {
-      console.error("Error creating campaign:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to create campaign.";
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: errorMessage,
-      });
-      throw error;
-    }
-  };
-
   const handleDelete = async (campaign: Campaign) => {
     if (
       !confirm(
@@ -517,7 +232,7 @@ export function CampaignsManager({
       sections: campaign.sections || [],
       questions: campaign.questions || [],
     });
-    setWizardDraft({
+    const draft: WizardData = {
       campaignId: campaign.id,
       creationMode: "guided_buddy",
       campaignType: campaign.campaign_type,
@@ -531,8 +246,8 @@ export function CampaignsManager({
       sections: survey.sections,
       questions: survey.questions,
       documentContent: "",
-    });
-    setIsWizardOpen(true);
+    };
+    navigate("/admin/campaigns/builder", { state: { draft } });
   };
 
   return (
@@ -561,7 +276,7 @@ export function CampaignsManager({
                   setShowDraftDecision(true);
                   return;
                 }
-                setIsWizardOpen(true);
+                navigate("/admin/campaigns/builder");
               }}
             >
               <Plus className="mr-2 h-4 w-4" />
@@ -687,18 +402,6 @@ export function CampaignsManager({
         </Card>
       </main>
 
-      <CampaignWizard
-        open={isWizardOpen}
-        onOpenChange={(open) => {
-          setIsWizardOpen(open);
-          if (!open) setWizardDraft(null);
-        }}
-        onComplete={handleCreateCampaign}
-        initialDraft={wizardDraft}
-        defaultCreationMode={defaultCreationMode}
-        onDefaultCreationModeChange={handleDefaultCreationModeChange}
-      />
-
       <AlertDialog open={showDraftDecision} onOpenChange={setShowDraftDecision}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -712,19 +415,15 @@ export function CampaignsManager({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
-                WIZARD_DRAFT_KEYS.forEach((key) =>
-                  window.localStorage.removeItem(key),
-                );
-                setWizardDraft(null);
-                setIsWizardOpen(true);
+                clearWizardDrafts();
+                navigate("/admin/campaigns/builder");
               }}
             >
               Start New
             </AlertDialogAction>
             <AlertDialogAction
               onClick={() => {
-                setWizardDraft(null);
-                setIsWizardOpen(true);
+                navigate("/admin/campaigns/builder");
               }}
             >
               Continue Draft

@@ -95,6 +95,9 @@ export function StepBasicInfo({
     invalidDateRange;
   const isTemplateStory = creationMode === "template_story";
   const isConversationBuilder = creationMode === "conversation_builder";
+  const minStartDate = new Date(Date.now() - new Date().getTimezoneOffset() * 60_000)
+    .toISOString()
+    .split("T")[0];
   const modeMeta = isQuickStart
     ? {
       label: "Quick Start setup",
@@ -139,7 +142,7 @@ export function StepBasicInfo({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
               <p className="text-base font-semibold text-slate-900">Campaign Details</p>
-              <span className="inline-flex items-center gap-1.5 rounded-full border-2 border-slate-300 bg-white/85 px-3 py-1.5 text-sm font-extrabold text-slate-800 shadow-sm">
+              <span className="cw-completion-badge inline-flex items-center gap-1.5 rounded-full border-2 border-slate-300 bg-white/85 px-3 py-1.5 text-sm font-extrabold text-slate-800 shadow-sm">
                 <Sparkles className="h-4 w-4" />
                 {percent}% complete
               </span>
@@ -227,6 +230,7 @@ export function StepBasicInfo({
                     type="date"
                     value={data.startDate}
                     onChange={(e) => onChange({ startDate: e.target.value })}
+                    min={minStartDate}
                     disabled={lockStartDate}
                     className={easyMode ? "h-11 text-base transition-colors hover:border-slate-400" : ""}
                   />
@@ -357,6 +361,7 @@ export function StepBasicInfo({
                     type="date"
                     value={data.startDate}
                     onChange={(e) => onChange({ startDate: e.target.value })}
+                    min={minStartDate}
                     disabled={lockStartDate}
                     className={easyMode ? "h-11 text-base transition-colors hover:border-slate-400" : ""}
                   />
@@ -481,6 +486,7 @@ export function StepBasicInfo({
                     type="date"
                     value={data.startDate}
                     onChange={(e) => onChange({ startDate: e.target.value })}
+                    min={minStartDate}
                     disabled={lockStartDate}
                     className={easyMode ? "h-11 text-base transition-colors hover:border-slate-400" : ""}
                   />

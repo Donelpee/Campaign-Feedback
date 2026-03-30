@@ -1,5 +1,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { X } from "lucide-react";
 
 interface GuidedBuddyPanelProps {
   title: string;
@@ -15,6 +17,7 @@ interface GuidedBuddyPanelProps {
   happySubtitle?: string;
   warningTitle?: string;
   warningSubtitle?: string;
+  onClose?: () => void;
 }
 
 const cowboyByEmotion = {
@@ -40,6 +43,7 @@ export function GuidedBuddyPanel({
   happySubtitle = "",
   warningTitle = "Add more words to continue.",
   warningSubtitle = "Field 2 or 3 needs at least 10 characters.",
+  onClose,
 }: GuidedBuddyPanelProps) {
   const mascotSrc =
     isWaiting
@@ -80,8 +84,8 @@ export function GuidedBuddyPanel({
   );
 
   return (
-    <Card className="cw-soft-panel h-full min-h-[440px] overflow-hidden xl:h-full xl:min-h-0">
-      <CardContent className="flex h-full min-h-0 flex-col gap-2.5 pt-4">
+    <Card className="cw-soft-panel h-full min-h-[360px] overflow-hidden xl:h-full xl:min-h-0">
+      <CardContent className="flex h-full min-h-0 flex-col gap-2 pt-3.5">
         <div className="flex items-center justify-between gap-2">
           <Badge variant="secondary" className="text-sm font-extrabold tracking-wide">
             Brady
@@ -91,16 +95,16 @@ export function GuidedBuddyPanel({
           </span>
         </div>
 
-        <div className="flex-1 min-h-0 p-1">
+        <div className="flex-1 min-h-0 px-1 pb-1">
           <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)]">
-            <div className="flex min-h-[118px] items-start justify-center px-3 pb-1 pt-2">
+            <div className="flex min-h-[92px] items-start justify-center px-3 pb-1 pt-1">
               {isWaiting ? (
                 <div className="relative w-full max-w-[230px] rounded-2xl border border-amber-300 bg-amber-50/95 px-3 py-2 text-xs text-amber-900 shadow-sm">
                   <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-amber-300 bg-amber-50/95" />
                   <p className="leading-snug">{renderQuotedSpeech("I am waiting for you...")}</p>
                 </div>
               ) : trackStatus !== "off_track" ? (
-                <div className="relative w-full max-w-[300px] rounded-2xl border border-slate-300 bg-white/95 px-4 py-3 text-sm text-slate-700 shadow-sm">
+                <div className="relative w-full max-w-[292px] rounded-2xl border border-slate-300 bg-white/95 px-4 py-2.5 text-sm text-slate-700 shadow-sm">
                   <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-slate-300 bg-white/95" />
                   <p className="leading-snug">{renderQuotedSpeech(isHappy ? happyTitle : title)}</p>
                   {(isHappy ? happySubtitle : subtitle) ? (
@@ -110,7 +114,7 @@ export function GuidedBuddyPanel({
                   ) : null}
                 </div>
               ) : (
-                <div className="relative w-full max-w-[280px] rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs shadow-sm">
+                <div className="relative w-full max-w-[272px] rounded-2xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs shadow-sm">
                   <span className="absolute -bottom-2 left-1/2 h-4 w-4 -translate-x-1/2 rotate-45 border-b border-r border-rose-300 bg-rose-50" />
                   <p className="leading-snug">{renderQuotedSpeech(warningTitle, "warning")}</p>
                   {warningSubtitle ? (
@@ -122,11 +126,11 @@ export function GuidedBuddyPanel({
               )}
             </div>
 
-            <div className="flex min-h-0 items-end justify-center overflow-hidden pt-2">
+            <div className="flex min-h-0 items-end justify-center overflow-hidden pt-1">
               <img
                 src={mascotSrc}
                 alt="Brady mascot"
-                className={`cw-gentle-bob translate-y-8 h-[108%] w-auto max-w-full object-contain object-bottom sm:h-[114%] xl:translate-y-10 xl:h-[118%] ${moodClass}`}
+                className={`cw-gentle-bob translate-y-6 h-[96%] w-auto max-w-full object-contain object-bottom sm:h-[102%] xl:translate-y-7 xl:h-[104%] ${moodClass}`}
                 onError={(event) => {
                   event.currentTarget.style.display = "none";
                 }}
@@ -134,6 +138,20 @@ export function GuidedBuddyPanel({
             </div>
           </div>
         </div>
+        {onClose ? (
+          <div className="flex justify-center pb-1 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-full border-rose-300 bg-white/95 px-4 text-sm font-extrabold text-rose-700 shadow-sm hover:bg-rose-50 hover:text-rose-800"
+              onClick={onClose}
+              aria-label="Close Brady"
+            >
+              <X className="mr-2 h-4 w-4" />
+              Close Brady
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

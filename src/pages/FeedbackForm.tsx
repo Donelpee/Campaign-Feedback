@@ -36,15 +36,33 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowRight,
+  Trash2,
 } from "lucide-react";
-import type { CampaignQuestion, FeedbackFormData, SurveySection } from "@/lib/supabase-types";
+import type {
+  CampaignQuestion,
+  FeedbackFormData,
+  SurveySection,
+  UploadedFileAnswer,
+} from "@/lib/supabase-types";
 import {
+  findQuestionRouteTarget,
   isSurveyQuestionVisible,
   normalizeCampaignSurvey,
 } from "@/lib/campaign-survey";
+import {
+  buildFileUploadAccept,
+  formatFileUploadSummary,
+  getFileUploadMaxFiles,
+  getFileUploadMaxSizeMb,
+} from "@/lib/file-upload";
 
 type MatrixAnswer = Record<string, string | string[]>;
-type DynamicAnswer = number | string | string[] | MatrixAnswer;
+type DynamicAnswer =
+  | number
+  | string
+  | string[]
+  | MatrixAnswer
+  | UploadedFileAnswer[];
 interface LinkData {
   id: string;
   company_name: string;
@@ -77,9 +95,13 @@ export default function FeedbackForm() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
+  const [sectionHistory, setSectionHistory] = useState<string[]>([]);
+  const [pendingTargetQuestionId, setPendingTargetQuestionId] = useState<string | null>(null);
   const [dynamicAnswers, setDynamicAnswers] = useState<
     Record<string, DynamicAnswer>
   >({});
+  const [uploadingQuestions, setUploadingQuestions] = useState<Record<string, boolean>>({});
+  const [fileUploadErrors, setFileUploadErrors] = useState<Record<string, string>>({});
   const [formData, setFormData] = useState<FeedbackFormData>({
     overall_satisfaction: 5,
     service_quality: 3,
@@ -200,6 +222,8 @@ export default function FeedbackForm() {
       });
       initializeDynamicAnswers(normalizedSurvey.questions);
       setCurrentSectionIndex(0);
+      setSectionHistory([]);
+      setPendingTargetQuestionId(null);
       setIsLoading(false);
     } catch (err) {
       console.error("Error loading link data:", err);
@@ -249,6 +273,7 @@ export default function FeedbackForm() {
   useEffect(() => {
     if (visibleSections.length === 0) {
       setCurrentSectionIndex(0);
+      setPendingTargetQuestionId(null);
       return;
     }
 
@@ -257,9 +282,42 @@ export default function FeedbackForm() {
     );
   }, [visibleSections]);
 
+  useEffect(() => {
+    const visibleSectionIds = new Set(visibleSections.map((section) => section.id));
+    setSectionHistory((previous) =>
+      previous.filter((sectionId) => visibleSectionIds.has(sectionId)),
+    );
+  }, [visibleSections]);
+
   const activeSection = visibleSections[currentSectionIndex] || null;
-  const activeSectionQuestions = activeSection?.questions || [];
+  const activeSectionQuestions = useMemo(
+    () => activeSection?.questions || [],
+    [activeSection],
+  );
   const isLastSection = currentSectionIndex >= visibleSections.length - 1;
+  const anyFilesUploading = Object.values(uploadingQuestions).some(Boolean);
+  const canGoBack = sectionHistory.length > 0 || currentSectionIndex > 0;
+
+  const getNextRouteDestination = useCallback(() => {
+    for (const question of [...activeSectionQuestions].reverse()) {
+      const routeTarget = findQuestionRouteTarget(question, dynamicAnswers[question.id]);
+      if (!routeTarget) continue;
+
+      const targetSectionIndex = visibleSections.findIndex(
+        (section) => section.id === routeTarget.targetSectionId,
+      );
+
+      if (targetSectionIndex === -1) continue;
+
+      return {
+        sectionIndex: targetSectionIndex,
+        sectionId: routeTarget.targetSectionId,
+        questionId: routeTarget.targetQuestionId || null,
+      };
+    }
+
+    return null;
+  }, [activeSectionQuestions, dynamicAnswers, visibleSections]);
 
   const derivedPayload = useMemo(() => {
     if (!hasDynamicQuestions || !linkData) {
@@ -424,10 +482,52 @@ export default function FeedbackForm() {
     setSubmitError(null);
     setShowValidationErrors(true);
     if (!validateDynamicQuestions(activeSectionQuestions)) return;
-    setCurrentSectionIndex((previous) =>
-      Math.min(previous + 1, Math.max(visibleSections.length - 1, 0)),
+
+    const routeDestination = getNextRouteDestination();
+    const activeSectionId = activeSection?.id;
+
+    if (routeDestination) {
+      if (activeSectionId) {
+        setSectionHistory((previous) => [...previous, activeSectionId]);
+      }
+      setCurrentSectionIndex(routeDestination.sectionIndex);
+      setPendingTargetQuestionId(routeDestination.questionId);
+      return;
+    }
+
+    const nextIndex = Math.min(
+      currentSectionIndex + 1,
+      Math.max(visibleSections.length - 1, 0),
     );
+
+    if (activeSectionId && nextIndex !== currentSectionIndex) {
+      setSectionHistory((previous) => [...previous, activeSectionId]);
+    }
+
+    setCurrentSectionIndex(nextIndex);
+    setPendingTargetQuestionId(null);
   };
+
+  useEffect(() => {
+    if (!pendingTargetQuestionId) return;
+
+    const elementId = `feedback-question-${pendingTargetQuestionId}`;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(elementId)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+
+    const timeout = window.setTimeout(() => {
+      setPendingTargetQuestionId(null);
+    }, 600);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timeout);
+    };
+  }, [pendingTargetQuestionId, currentSectionIndex]);
 
   if (isLoading) {
     return (
@@ -493,6 +593,97 @@ export default function FeedbackForm() {
       : [...current, option];
 
     setDynamicAnswers((prev) => ({ ...prev, [questionId]: next }));
+  };
+
+  const handleRemoveUploadedFile = (questionId: string, filePath: string) => {
+    setDynamicAnswers((prev) => {
+      const current = (prev[questionId] as UploadedFileAnswer[] | undefined) ?? [];
+      return {
+        ...prev,
+        [questionId]: current.filter((file) => file.path !== filePath),
+      };
+    });
+  };
+
+  const handleFileUpload = async (question: CampaignQuestion, fileList: FileList | null) => {
+    if (!code || !fileList || fileList.length === 0) return;
+
+    const files = Array.from(fileList);
+    const maxFiles = getFileUploadMaxFiles(question);
+    const maxSizeBytes = getFileUploadMaxSizeMb(question) * 1024 * 1024;
+    const currentUploads =
+      (dynamicAnswers[question.id] as UploadedFileAnswer[] | undefined) ?? [];
+
+    if (currentUploads.length + files.length > maxFiles) {
+      setFileUploadErrors((prev) => ({
+        ...prev,
+        [question.id]: `You can upload up to ${maxFiles} file${maxFiles === 1 ? "" : "s"} for this question.`,
+      }));
+      return;
+    }
+
+    const oversizedFile = files.find((file) => file.size > maxSizeBytes);
+    if (oversizedFile) {
+      setFileUploadErrors((prev) => ({
+        ...prev,
+        [question.id]: `${oversizedFile.name} exceeds the ${getFileUploadMaxSizeMb(question)} MB per-file limit.`,
+      }));
+      return;
+    }
+
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+    const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
+    if (!supabaseUrl || !publishableKey) {
+      setFileUploadErrors((prev) => ({
+        ...prev,
+        [question.id]: "File uploads are not configured for this environment.",
+      }));
+      return;
+    }
+    const uploadUrl = `${supabaseUrl}/functions/v1/upload-feedback-files`;
+
+    const body = new FormData();
+    body.append("code", code);
+    body.append("questionId", question.id);
+    files.forEach((file) => body.append("files", file));
+
+    setUploadingQuestions((prev) => ({ ...prev, [question.id]: true }));
+    setFileUploadErrors((prev) => ({ ...prev, [question.id]: "" }));
+
+    try {
+      const response = await fetch(uploadUrl, {
+        method: "POST",
+        headers: {
+          apikey: publishableKey,
+          Authorization: `Bearer ${publishableKey}`,
+        },
+        body,
+      });
+
+      const result = (await response.json()) as {
+        error?: string;
+        files?: UploadedFileAnswer[];
+      };
+
+      if (!response.ok) {
+        throw new Error(result.error || "Upload failed.");
+      }
+
+      const uploadedFiles = Array.isArray(result.files) ? result.files : [];
+      setDynamicAnswers((prev) => ({
+        ...prev,
+        [question.id]: [...currentUploads, ...uploadedFiles],
+      }));
+    } catch (error) {
+      console.error("Error uploading feedback files:", error);
+      setFileUploadErrors((prev) => ({
+        ...prev,
+        [question.id]:
+          error instanceof Error ? error.message : "Failed to upload the selected files.",
+      }));
+    } finally {
+      setUploadingQuestions((prev) => ({ ...prev, [question.id]: false }));
+    }
   };
 
   const renderDynamicQuestion = (question: CampaignQuestion, index: number) => {
@@ -748,26 +939,68 @@ export default function FeedbackForm() {
     }
 
     if (question.type === "file_upload") {
+      const uploadedFiles =
+        (dynamicAnswers[question.id] as UploadedFileAnswer[] | undefined) ?? [];
+      const maxFiles = getFileUploadMaxFiles(question);
+      const uploadSummary = formatFileUploadSummary(question);
+      const uploadError = fileUploadErrors[question.id];
+      const isUploading = Boolean(uploadingQuestions[question.id]);
+
       return (
-        <div className="space-y-2">
+        <div className="space-y-3">
           <h3 className="font-medium text-foreground">{question.question}</h3>
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
+          <p className="text-sm text-muted-foreground">{uploadSummary}</p>
           <Input
             type="file"
+            multiple={maxFiles > 1}
+            accept={buildFileUploadAccept(question)}
+            disabled={isUploading || uploadedFiles.length >= maxFiles}
             onChange={(event) => {
-              const files = Array.from(event.target.files || []).map((file) => file.name);
-              setDynamicAnswers((prev) => ({
-                ...prev,
-                [question.id]: files,
-              }));
+              void handleFileUpload(question, event.target.files);
+              event.target.value = "";
             }}
           />
-          {Array.isArray(dynamicAnswers[question.id]) &&
-            (dynamicAnswers[question.id] as string[]).length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                Selected: {(dynamicAnswers[question.id] as string[]).join(", ")}
-              </p>
-            )}
+          <p className="text-xs text-muted-foreground">
+            Uploaded {uploadedFiles.length} of {maxFiles} allowed file
+            {maxFiles === 1 ? "" : "s"}.
+          </p>
+          {isUploading && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Uploading file{maxFiles === 1 ? "" : "s"}...
+            </div>
+          )}
+          {uploadError && (
+            <p className="text-sm font-medium text-destructive">{uploadError}</p>
+          )}
+          {uploadedFiles.length > 0 && (
+            <div className="space-y-2">
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.path}
+                  className="flex items-center justify-between gap-3 rounded-lg border p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{file.originalName}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(file.sizeBytes / (1024 * 1024)).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0"
+                    onClick={() => handleRemoveUploadedFile(question.id, file.path)}
+                    title="Remove file"
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       );
     }
@@ -963,11 +1196,13 @@ export default function FeedbackForm() {
                 {activeSectionQuestions.map((question, index) => (
                   <Card
                     key={question.id}
+                    id={`feedback-question-${question.id}`}
                     className={`warm-question-card transition-shadow duration-200 ${
                       showValidationErrors && isRequiredQuestionMissing(question)
                         ? "border-destructive/70 ring-1 ring-destructive/40"
                         : ""
                     }`}
+                    style={{ scrollMarginTop: "1rem" }}
                   >
                     <CardHeader>
                       <CardTitle className="text-lg">
@@ -1117,10 +1352,30 @@ export default function FeedbackForm() {
                   variant="outline"
                   size="lg"
                   className="sm:min-w-[140px]"
-                  onClick={() =>
-                    setCurrentSectionIndex((previous) => Math.max(previous - 1, 0))
-                  }
-                  disabled={currentSectionIndex === 0 || isSubmitting}
+                  onClick={() => {
+                    setPendingTargetQuestionId(null);
+                    setSectionHistory((previous) => {
+                      if (previous.length === 0) {
+                        setCurrentSectionIndex((current) => Math.max(current - 1, 0));
+                        return previous;
+                      }
+
+                      const nextHistory = [...previous];
+                      const previousSectionId = nextHistory.pop();
+                      const previousIndex = visibleSections.findIndex(
+                        (section) => section.id === previousSectionId,
+                      );
+
+                      if (previousIndex >= 0) {
+                        setCurrentSectionIndex(previousIndex);
+                      } else {
+                        setCurrentSectionIndex((current) => Math.max(current - 1, 0));
+                      }
+
+                      return nextHistory;
+                    });
+                  }}
+                  disabled={!canGoBack || isSubmitting}
                 >
                   <ArrowLeft className="mr-2 h-4 w-4" />
                   Back
@@ -1131,7 +1386,7 @@ export default function FeedbackForm() {
                     type="submit"
                     size="lg"
                     className="sm:min-w-[180px]"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || anyFilesUploading}
                   >
                     {isSubmitting ? (
                       <>
@@ -1148,7 +1403,7 @@ export default function FeedbackForm() {
                     size="lg"
                     className="sm:min-w-[180px]"
                     onClick={handleContinueSection}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || anyFilesUploading}
                   >
                     {activeSection?.continueLabel?.trim() || "Continue"}
                     <ArrowRight className="ml-2 h-4 w-4" />
@@ -1160,7 +1415,7 @@ export default function FeedbackForm() {
                 type="submit"
                 size="lg"
                 className="w-full"
-                disabled={isSubmitting}
+                disabled={isSubmitting || anyFilesUploading}
               >
                 {isSubmitting ? (
                   <>
