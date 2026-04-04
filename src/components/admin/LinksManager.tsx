@@ -86,6 +86,24 @@ interface DistributionSettings {
   maxReminders: number;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string" &&
+    (error as { message: string }).message.trim()
+  ) {
+    return (error as { message: string }).message;
+  }
+
+  return fallback;
+}
+
 function generateUniqueCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let code = "";
@@ -307,8 +325,7 @@ export function LinksManager() {
       loadData();
     } catch (error) {
       console.error("Error creating link:", error);
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to create link.";
+      const errorMessage = getErrorMessage(error, "Failed to create link.");
       toast({
         variant: "destructive",
         title: "Error",
@@ -599,6 +616,9 @@ export function LinksManager() {
                 <div className="easy-form-shell space-y-4 py-4">
                   <p className="text-sm text-muted-foreground">
                     Pick the company first, then choose its campaign to generate one unique link.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Links can be created before a campaign starts. Respondents will still only be able to submit during the campaign date window.
                   </p>
                   <div className="space-y-2">
                     <Label>Company</Label>

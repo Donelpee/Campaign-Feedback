@@ -1301,7 +1301,7 @@ export default function FeedbackForm() {
                   <img
                     src={linkData.company_logo_url}
                     alt={`${linkData.company_name} logo`}
-                    className="h-16 w-auto object-contain"
+                    className="h-20 w-auto object-contain md:h-24"
                   />
                   {linkData.company_name && (
                     <p className="mt-2 text-sm text-muted-foreground">
