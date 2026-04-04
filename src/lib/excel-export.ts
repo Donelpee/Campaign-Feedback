@@ -1,8 +1,14 @@
-import type { CampaignQuestion } from "./supabase-types";
+import type {
+  CampaignBriefMetricInput,
+  CampaignReportBrief,
+} from "./campaign-report-briefs";
 import { normalizeCampaignSurvey } from "./campaign-survey";
+import type { CampaignQuestion } from "./supabase-types";
 
 export interface ExportResponseData {
   id: string;
+  company_id: string;
+  campaign_id: string;
   company_name: string;
   campaign_name: string;
   created_at: string;
@@ -18,13 +24,7 @@ export interface ExportResponseData {
   campaign_questions: CampaignQuestion[];
 }
 
-export interface CampaignExportMetric {
-  campaign_name: string;
-  responses: number;
-  views: number;
-  response_rate: number;
-  completion_rate: number;
-}
+export type CampaignExportMetric = CampaignBriefMetricInput;
 
 export interface AdvancedExportInsights {
   periodDelta: {
@@ -92,9 +92,26 @@ function hasAnswer(value: unknown): boolean {
   return true;
 }
 
+function createUniqueSheetName(name: string, usedNames: Set<string>): string {
+  const sanitized = name.replace(/[*?:/\\[\]]/g, "").trim() || "Campaign";
+  const maxLength = 31;
+  let candidate = sanitized.slice(0, maxLength);
+  let counter = 1;
+
+  while (usedNames.has(candidate)) {
+    const suffix = ` ${counter}`;
+    candidate = sanitized.slice(0, Math.max(1, maxLength - suffix.length)) + suffix;
+    counter += 1;
+  }
+
+  usedNames.add(candidate);
+  return candidate;
+}
+
 export async function exportToExcel(
   responses: ExportResponseData[],
   campaignMetrics: CampaignExportMetric[],
+  campaignBriefs: CampaignReportBrief[],
   insights: AdvancedExportInsights,
   filename: string,
 ) {
@@ -103,8 +120,30 @@ export async function exportToExcel(
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Nkọwa";
   workbook.created = new Date();
+  const usedSheetNames = new Set<string>();
+  const campaignNameCounts = new Map<string, number>();
+
+  campaignMetrics.forEach((metric) => {
+    campaignNameCounts.set(
+      metric.campaign_name,
+      (campaignNameCounts.get(metric.campaign_name) || 0) + 1,
+    );
+  });
+
+  const getCampaignLabel = (metric: {
+    campaign_name: string;
+    company_name: string;
+  }) =>
+    (campaignNameCounts.get(metric.campaign_name) || 0) > 1
+      ? `${metric.company_name} - ${metric.campaign_name}`
+      : metric.campaign_name;
+
+  const briefByCampaignId = new Map(
+    campaignBriefs.map((brief) => [brief.campaignId, brief]),
+  );
 
   const summary = workbook.addWorksheet("Summary");
+  usedSheetNames.add("Summary");
   summary.columns = [{ width: 26 }, { width: 26 }, { width: 26 }, { width: 26 }];
 
   summary.mergeCells("A1:D1");
@@ -143,14 +182,14 @@ export async function exportToExcel(
   summary.getCell("B11").value = `${insights.forecast.dailyAverage.toFixed(1)}`;
 
   const campaignResponseChart = generateBarChart(
-    campaignMetrics.map((m) => ({ label: m.campaign_name, value: m.responses })),
+    campaignMetrics.map((m) => ({ label: getCampaignLabel(m), value: m.responses })),
     "Responses by Campaign",
   );
   addChartImage(workbook, summary, campaignResponseChart, 0, 11, 520, 300);
 
   const campaignRateChart = generateBarChart(
     campaignMetrics.map((m) => ({
-      label: m.campaign_name,
+      label: getCampaignLabel(m),
       value: Number(m.response_rate.toFixed(2)),
     })),
     "Response Rate by Campaign (%)",
@@ -209,7 +248,62 @@ export async function exportToExcel(
     summary.addRow([item]);
   });
 
+  const briefsSheet = workbook.addWorksheet("AI Briefs");
+  usedSheetNames.add("AI Briefs");
+  briefsSheet.columns = [
+    { width: 28 },
+    { width: 28 },
+    { width: 16 },
+    { width: 60 },
+    { width: 60 },
+  ];
+  briefsSheet.mergeCells("A1:E1");
+  briefsSheet.getCell("A1").value = "Campaign AI Summaries And Recommendations";
+  briefsSheet.getCell("A1").font = {
+    size: 18,
+    bold: true,
+    color: { argb: "FF1E3A8A" },
+  };
+  ["A3", "B3", "C3", "D3", "E3"].forEach((cellRef, index) => {
+    briefsSheet.getCell(cellRef).value = [
+      "Company",
+      "Campaign",
+      "Source",
+      "Summary",
+      "Recommendations",
+    ][index];
+    styleHeader(briefsSheet.getCell(cellRef));
+  });
+
+  if (campaignBriefs.length === 0) {
+    const row = briefsSheet.addRow([
+      "",
+      "",
+      "",
+      "No campaign brief was generated for this export.",
+      "",
+    ]);
+    row.eachCell((cell) => {
+      cell.alignment = { wrapText: true, vertical: "top" };
+    });
+  } else {
+    campaignBriefs.forEach((brief) => {
+      const row = briefsSheet.addRow([
+        brief.companyName,
+        brief.campaignName,
+        brief.source.toUpperCase(),
+        brief.summary,
+        brief.recommendations.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+      ]);
+      row.height = 90;
+      row.eachCell((cell) => {
+        cell.alignment = { wrapText: true, vertical: "top" };
+      });
+    });
+  }
+
   const raw = workbook.addWorksheet("Raw Responses");
+  usedSheetNames.add("Raw Responses");
   const headers = [
     "Company",
     "Campaign",
@@ -239,20 +333,27 @@ export async function exportToExcel(
     ]);
   });
 
-  const campaigns = [...new Set(responses.map((r) => r.campaign_name))];
-  campaigns.forEach((campaignName) => {
-    const campaignResponses = responses.filter((r) => r.campaign_name === campaignName);
+  const campaignIds = [...new Set(responses.map((r) => r.campaign_id))];
+  campaignIds.forEach((campaignId) => {
+    const campaignResponses = responses.filter((r) => r.campaign_id === campaignId);
     if (campaignResponses.length === 0) return;
 
+    const campaignMeta = campaignResponses[0];
+    const metric = campaignMetrics.find((item) => item.campaign_id === campaignId);
+    const brief = briefByCampaignId.get(campaignId);
+    const displayLabel = metric
+      ? getCampaignLabel(metric)
+      : `${campaignMeta.company_name} - ${campaignMeta.campaign_name}`;
     const sheet = workbook.addWorksheet(
-      campaignName.substring(0, 28).replace(/[*?:/\\[\]]/g, ""),
+      createUniqueSheetName(displayLabel, usedSheetNames),
     );
     sheet.columns = [{ width: 30 }, { width: 25 }, { width: 25 }, { width: 25 }];
     sheet.mergeCells("A1:D1");
-    sheet.getCell("A1").value = `Campaign: ${campaignName}`;
+    sheet.getCell("A1").value = `Campaign: ${displayLabel}`;
     sheet.getCell("A1").font = { size: 18, bold: true, color: { argb: "FF1E3A8A" } };
 
-    const metric = campaignMetrics.find((m) => m.campaign_name === campaignName);
+    sheet.getCell("A2").value = "Company";
+    sheet.getCell("B2").value = campaignMeta.company_name;
     sheet.getCell("A3").value = "Responses";
     sheet.getCell("B3").value = metric?.responses || campaignResponses.length;
     sheet.getCell("A4").value = "Views";
@@ -261,11 +362,33 @@ export async function exportToExcel(
     sheet.getCell("B5").value = `${(metric?.response_rate || 0).toFixed(1)}%`;
     sheet.getCell("A6").value = "Completion Rate";
     sheet.getCell("B6").value = `${(metric?.completion_rate || 0).toFixed(1)}%`;
+    sheet.getCell("A7").value = "Brief Source";
+    sheet.getCell("B7").value = brief ? brief.source.toUpperCase() : "N/A";
+
+    sheet.getCell("A9").value = "AI Summary";
+    sheet.getCell("A9").font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+    sheet.mergeCells("A10:D12");
+    sheet.getCell("A10").value =
+      brief?.summary || "No campaign summary was available for this export.";
+    sheet.getCell("A10").alignment = { wrapText: true, vertical: "top" };
+
+    sheet.getCell("A14").value = "Recommended Actions";
+    sheet.getCell("A14").font = { bold: true, size: 12, color: { argb: "FF1E3A8A" } };
+    const recommendationRows =
+      brief?.recommendations.length && brief.recommendations.length > 0
+        ? brief.recommendations
+        : ["No recommendations were generated for this campaign."];
+    recommendationRows.forEach((item, index) => {
+      const rowNumber = 15 + index;
+      sheet.mergeCells(`A${rowNumber}:D${rowNumber}`);
+      sheet.getCell(`A${rowNumber}`).value = `${index + 1}. ${item}`;
+      sheet.getCell(`A${rowNumber}`).alignment = { wrapText: true, vertical: "top" };
+    });
 
     const questionDefs = normalizeCampaignSurvey(
       campaignResponses[0].campaign_questions || [],
     ).questions;
-    let rowCursor = 8;
+    let rowCursor = 18 + recommendationRows.length;
     questionDefs.forEach((question) => {
       const values = campaignResponses.map((response) => response.answers[question.id]);
       const answered = values.filter((v) => hasAnswer(v));

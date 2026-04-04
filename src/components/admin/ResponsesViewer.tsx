@@ -59,9 +59,19 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { FileSpreadsheet } from "lucide-react";
-import type { Company, Campaign, UploadedFileAnswer } from "@/lib/supabase-types";
+import type {
+  Company,
+  Campaign,
+  CampaignQuestion,
+  UploadedFileAnswer,
+} from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import {
+  buildCampaignBriefRequests,
+  buildFallbackCampaignReportBriefs,
+  type CampaignReportBrief,
+} from "@/lib/campaign-report-briefs";
 import {
   findOtherOptionLabel,
   getOtherAnswerText,
@@ -706,16 +716,16 @@ export function ResponsesViewer() {
   }, [filteredResponses]);
 
   const campaignHealthRows = useMemo(() => {
-    return campaignVolumeData.map((campaign) => {
+    return campaignSummaries.map((campaign) => {
       const campaignLinks = links.filter((l) => {
-        if (l.campaign.name !== campaign.name) return false;
+        if (l.campaign_id !== campaign.campaignId) return false;
         if (filterCompany !== "all" && l.company_id !== filterCompany) return false;
         if (filterCampaign !== "all" && l.campaign_id !== filterCampaign) return false;
         return true;
       });
       const views = campaignLinks.reduce((sum, l) => sum + (l.access_count || 0), 0);
       const campaignResponses = filteredResponses.filter(
-        (r) => r.link.campaign.name === campaign.name,
+        (r) => r.link.campaign.id === campaign.campaignId,
       );
       const responseRate = views > 0 ? (campaignResponses.length / views) * 100 : 0;
 
@@ -753,7 +763,9 @@ export function ResponsesViewer() {
         healthScore >= 75 ? "Low" : healthScore >= 50 ? "Medium" : "High";
 
       return {
-        campaignName: campaign.name,
+        campaignId: campaign.campaignId,
+        companyName: campaign.companyName,
+        campaignName: campaign.campaignName,
         responses: campaignResponses.length,
         views,
         responseRate,
@@ -764,7 +776,7 @@ export function ResponsesViewer() {
       };
     });
   }, [
-    campaignVolumeData,
+    campaignSummaries,
     filterCampaign,
     filterCompany,
     filteredResponses,
@@ -881,6 +893,83 @@ export function ResponsesViewer() {
 
     return exportRows;
   }, [filterCampaign, filterCompany]);
+
+  const loadCampaignReportBriefs = useCallback(
+    async (
+      exportData: Array<{
+        campaign_id: string;
+        company_id: string;
+        company_name: string;
+        campaign_name: string;
+        created_at: string;
+        satisfaction_value: number | null;
+        quality_value: number | null;
+        recommendation_score: number | null;
+        improvement_areas: string[];
+        additional_comments: string | null;
+        answers: Record<string, unknown>;
+        campaign_questions: CampaignQuestion[];
+      }>,
+      metricsByCampaign: Array<{
+        campaign_id: string;
+        company_id: string;
+        company_name: string;
+        campaign_name: string;
+        responses: number;
+        views: number;
+        response_rate: number;
+        completion_rate: number;
+        sentiment_index?: number;
+        health_score?: number;
+        risk?: string;
+      }>,
+    ): Promise<CampaignReportBrief[]> => {
+      const requests = buildCampaignBriefRequests(exportData, metricsByCampaign);
+      const fallbackBriefs = buildFallbackCampaignReportBriefs(requests);
+
+      if (requests.length === 0) {
+        return fallbackBriefs;
+      }
+
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "generate-campaign-report-briefs",
+          {
+            body: { campaigns: requests },
+          },
+        );
+
+        if (error) {
+          console.error("Error generating campaign report briefs:", error);
+          return fallbackBriefs;
+        }
+
+        const remoteBriefs = Array.isArray(
+          (data as { briefs?: unknown } | null)?.briefs,
+        )
+          ? ((data as { briefs: CampaignReportBrief[] }).briefs || [])
+          : [];
+
+        if (remoteBriefs.length === 0) {
+          return fallbackBriefs;
+        }
+
+        const remoteByCampaignId = new Map(
+          remoteBriefs
+            .filter((brief) => brief && typeof brief.campaignId === "string")
+            .map((brief) => [brief.campaignId, brief]),
+        );
+
+        return fallbackBriefs.map(
+          (brief) => remoteByCampaignId.get(brief.campaignId) || brief,
+        );
+      } catch (error) {
+        console.error("Unexpected campaign brief generation error:", error);
+        return fallbackBriefs;
+      }
+    },
+    [],
+  );
 
   const handleExportCSV = () => {
     if (totalResponsesCount === 0) {
@@ -1023,6 +1112,8 @@ export function ResponsesViewer() {
         const metrics = getDisplayMetrics(r);
         return {
           id: r.id,
+          company_id: r.link.company.id,
+          campaign_id: r.link.campaign.id,
           company_name: r.link.company.name,
           campaign_name: r.link.campaign.name,
           created_at: r.created_at,
@@ -1045,18 +1136,40 @@ export function ResponsesViewer() {
         };
       });
 
-      const metricsByCampaign = campaignSummaries.map((campaign) => ({
-        campaign_name: campaign.campaignName,
-        responses: campaign.responses,
-        views: campaign.views,
-        response_rate: campaign.responseRate,
-        completion_rate: campaign.completionRate,
-      }));
+      const metricsByCampaign = campaignSummaries.map((campaign) => {
+        const representativeResponse = exportResponses.find(
+          (response) => response.link.campaign.id === campaign.campaignId,
+        );
+        const matchingHealth = campaignHealthRows.find(
+          (row) => row.campaignId === campaign.campaignId,
+        );
+        const matchingLink = links.find((link) => link.campaign_id === campaign.campaignId);
+
+        return {
+          campaign_id: campaign.campaignId,
+          company_id:
+            representativeResponse?.link.company.id ||
+            matchingLink?.company_id ||
+            "",
+          company_name: campaign.companyName,
+          campaign_name: campaign.campaignName,
+          responses: campaign.responses,
+          views: campaign.views,
+          response_rate: campaign.responseRate,
+          completion_rate: campaign.completionRate,
+          sentiment_index: matchingHealth?.sentimentIndex,
+          health_score: matchingHealth?.healthScore,
+          risk: matchingHealth?.risk,
+        };
+      });
+
+      const campaignBriefs = await loadCampaignReportBriefs(data, metricsByCampaign);
 
       const { exportToExcel } = await import("@/lib/excel-export");
       await exportToExcel(
         data,
         metricsByCampaign,
+        campaignBriefs,
         {
           periodDelta: {
             currentResponses: futureReleaseFlags.phase3To5AdvancedExportInsights
@@ -1116,7 +1229,7 @@ export function ResponsesViewer() {
       );
       toast({
         title: "Success",
-        description: "Excel report with charts downloaded successfully.",
+        description: "Excel report with campaign briefs downloaded successfully.",
       });
     } catch (error) {
       console.error("Error exporting to Excel:", error);
