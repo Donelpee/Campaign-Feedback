@@ -83,7 +83,11 @@ async function postgrest<T>(path: string, options: RequestInit): Promise<T> {
   }
 
   if (response.status === 204) return [] as unknown as T;
-  return (await response.json()) as T;
+
+  const text = await response.text();
+  if (!text.trim()) return [] as unknown as T;
+
+  return JSON.parse(text) as T;
 }
 
 async function postRpc<T>(fn: string, body: Record<string, unknown>): Promise<T> {
@@ -103,7 +107,9 @@ async function postRpc<T>(fn: string, body: Record<string, unknown>): Promise<T>
     throw new Error(`RPC error (${response.status}): ${text}`);
   }
 
-  return (await response.json()) as T;
+  const text = await response.text();
+  if (!text.trim()) return "" as T;
+  return JSON.parse(text) as T;
 }
 
 async function sendWithResend(params: {
@@ -362,7 +368,12 @@ Deno.serve(async (request) => {
       p_payload: payload,
     });
 
-    await sendAdminNotifications(code, String(responseId));
+    try {
+      await sendAdminNotifications(code, String(responseId));
+    } catch (error) {
+      // Notification delivery must never block a successful respondent submission.
+      console.error("submit-feedback-response post-submit notification error:", error);
+    }
 
     return jsonResponse(200, {
       responseId,
@@ -371,7 +382,10 @@ Deno.serve(async (request) => {
   } catch (error) {
     console.error("submit-feedback-response function error:", error);
     return jsonResponse(500, {
-      error: "Failed to submit feedback.",
+      error:
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Failed to submit feedback.",
     });
   }
 });

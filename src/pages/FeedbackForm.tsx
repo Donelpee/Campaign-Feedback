@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -547,7 +548,26 @@ export default function FeedbackForm() {
       setIsSubmitted(true);
     } catch (err) {
       console.error("Error submitting feedback:", err);
-      setSubmitError("Failed to submit your feedback. Please try again.");
+      if (err instanceof FunctionsHttpError) {
+        try {
+          const errorBody = await err.context.json();
+          const errorMessage =
+            typeof errorBody?.error === "string" && errorBody.error.trim()
+              ? errorBody.error
+              : "Failed to submit your feedback. Please try again.";
+          setSubmitError(errorMessage);
+          return;
+        } catch {
+          setSubmitError("Failed to submit your feedback. Please try again.");
+          return;
+        }
+      }
+
+      const fallbackMessage =
+        err instanceof Error && err.message.trim()
+          ? err.message
+          : "Failed to submit your feedback. Please try again.";
+      setSubmitError(fallbackMessage);
     } finally {
       setIsSubmitting(false);
     }

@@ -1,1 +1,7 @@
 project_id = "lefraypzzfbowacswwls"
+
+[functions.submit-feedback-response]
+verify_jwt = false
+
+[functions.upload-feedback-files]
+verify_jwt = false
