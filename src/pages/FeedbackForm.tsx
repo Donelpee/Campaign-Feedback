@@ -1,7 +1,7 @@
 // Feedback form for campaign links (public)
 // Accessibility: Semantic HTML, clear headings, accessible controls, ARIA labels
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,13 @@ import {
   getFileUploadMaxFiles,
   getFileUploadMaxSizeMb,
 } from "@/lib/file-upload";
+import {
+  findOtherOptionLabel,
+  getOtherAnswerKey,
+  getQuestionIdFromOtherAnswerKey,
+  isOtherOptionSelected,
+  sanitizeQuestionOptions,
+} from "@/lib/campaign-answer-utils";
 
 type MatrixAnswer = Record<string, string | string[]>;
 type DynamicAnswer =
@@ -77,16 +84,11 @@ interface LinkData {
   end_date: string;
 }
 
-function sanitizeOptions(values?: string[]): string[] {
-  return (values || [])
-    .map((value) => value.trim())
-    .filter((value, index, arr) => value.length > 0 && arr.indexOf(value) === index);
-}
-
 export default function FeedbackForm() {
   // Routing and state
   const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [linkData, setLinkData] = useState<LinkData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -109,6 +111,27 @@ export default function FeedbackForm() {
     improvement_areas: [],
     additional_comments: "",
   });
+  const isPreviewMode = searchParams.get("preview") === "1";
+
+  const getOtherDetails = useCallback(
+    (questionId: string) => String(dynamicAnswers[getOtherAnswerKey(questionId)] ?? ""),
+    [dynamicAnswers],
+  );
+
+  const clearOtherDetails = useCallback((questionId: string) => {
+    setDynamicAnswers((prev) => {
+      const next = { ...prev };
+      delete next[getOtherAnswerKey(questionId)];
+      return next;
+    });
+  }, []);
+
+  const setOtherDetails = useCallback((questionId: string, value: string) => {
+    setDynamicAnswers((prev) => ({
+      ...prev,
+      [getOtherAnswerKey(questionId)]: value,
+    }));
+  }, []);
 
   const initializeDynamicAnswers = useCallback(
     (questions: CampaignQuestion[]) => {
@@ -190,7 +213,7 @@ export default function FeedbackForm() {
         end_date: string;
       };
 
-      if (!linkInfo.is_active) {
+      if (!isPreviewMode && !linkInfo.is_active) {
         setLoadError("This feedback form is no longer accepting responses.");
         setIsLoading(false);
         return;
@@ -201,13 +224,13 @@ export default function FeedbackForm() {
       const endDate = new Date(linkInfo.end_date);
       endDate.setHours(23, 59, 59, 999);
 
-      if (now < startDate) {
+      if (!isPreviewMode && now < startDate) {
         setLoadError("This feedback campaign has not started yet.");
         setIsLoading(false);
         return;
       }
 
-      if (now > endDate) {
+      if (!isPreviewMode && now > endDate) {
         setLoadError("This feedback campaign has ended.");
         setIsLoading(false);
         return;
@@ -230,7 +253,7 @@ export default function FeedbackForm() {
       setLoadError("Failed to load the feedback form. Please try again.");
       setIsLoading(false);
     }
-  }, [code, initializeDynamicAnswers]);
+  }, [code, initializeDynamicAnswers, isPreviewMode]);
 
   const incrementAccessCount = useCallback(async () => {
     if (!code) return;
@@ -240,8 +263,10 @@ export default function FeedbackForm() {
   useEffect(() => {
     if (!code) return;
     loadLinkData();
-    incrementAccessCount();
-  }, [code, incrementAccessCount, loadLinkData]);
+    if (!isPreviewMode) {
+      incrementAccessCount();
+    }
+  }, [code, incrementAccessCount, isPreviewMode, loadLinkData]);
 
   const hasDynamicQuestions = (linkData?.campaign_questions?.length || 0) > 0;
 
@@ -270,8 +295,23 @@ export default function FeedbackForm() {
       .filter((section) => section.questions.length > 0);
   }, [linkData, visibleDynamicQuestions]);
 
+  const previewSections = useMemo(() => {
+    if (!linkData) return [];
+
+    return (linkData.campaign_sections || [])
+      .map((section) => ({
+        ...section,
+        questions: (linkData.campaign_questions || []).filter(
+          (question) => question.sectionId === section.id,
+        ),
+      }))
+      .filter((section) => section.questions.length > 0);
+  }, [linkData]);
+
+  const displayedSections = isPreviewMode ? previewSections : visibleSections;
+
   useEffect(() => {
-    if (visibleSections.length === 0) {
+    if (isPreviewMode || visibleSections.length === 0) {
       setCurrentSectionIndex(0);
       setPendingTargetQuestionId(null);
       return;
@@ -280,14 +320,19 @@ export default function FeedbackForm() {
     setCurrentSectionIndex((previous) =>
       Math.min(previous, Math.max(visibleSections.length - 1, 0)),
     );
-  }, [visibleSections]);
+  }, [isPreviewMode, visibleSections]);
 
   useEffect(() => {
+    if (isPreviewMode) {
+      setSectionHistory([]);
+      return;
+    }
+
     const visibleSectionIds = new Set(visibleSections.map((section) => section.id));
     setSectionHistory((previous) =>
       previous.filter((sectionId) => visibleSectionIds.has(sectionId)),
     );
-  }, [visibleSections]);
+  }, [isPreviewMode, visibleSections]);
 
   const activeSection = visibleSections[currentSectionIndex] || null;
   const activeSectionQuestions = useMemo(
@@ -297,6 +342,14 @@ export default function FeedbackForm() {
   const isLastSection = currentSectionIndex >= visibleSections.length - 1;
   const anyFilesUploading = Object.values(uploadingQuestions).some(Boolean);
   const canGoBack = sectionHistory.length > 0 || currentSectionIndex > 0;
+  const totalQuestionCount = displayedSections.reduce(
+    (sum, section) => sum + section.questions.length,
+    0,
+  );
+  const displayedQuestionOrder = useMemo(
+    () => displayedSections.flatMap((section) => section.questions),
+    [displayedSections],
+  );
 
   const getNextRouteDestination = useCallback(() => {
     for (const question of [...activeSectionQuestions].reverse()) {
@@ -375,19 +428,34 @@ export default function FeedbackForm() {
       ),
       improvement_areas: multipleAnswer,
       additional_comments: textAnswer,
-        answers: Object.fromEntries(
-          Object.entries(dynamicAnswers).filter(([questionId]) =>
-            visibleDynamicQuestions.some((question) => question.id === questionId),
-          ),
-        ),
-      };
+      answers: Object.fromEntries(
+        Object.entries(dynamicAnswers).filter(([questionId, value]) => {
+          if (visibleDynamicQuestions.some((question) => question.id === questionId)) {
+            return true;
+          }
+
+          const baseQuestionId = getQuestionIdFromOtherAnswerKey(questionId);
+          if (!baseQuestionId) return false;
+
+          return (
+            visibleDynamicQuestions.some((question) => question.id === baseQuestionId) &&
+            String(value ?? "").trim().length > 0
+          );
+        }),
+      ),
+    };
   }, [dynamicAnswers, formData, hasDynamicQuestions, linkData, visibleDynamicQuestions]);
 
   const isRequiredQuestionMissing = (question: CampaignQuestion) => {
-    if (!question.required) return false;
     const answer = dynamicAnswers[question.id];
+    const otherSelected = isOtherOptionSelected(question, answer);
+    const otherDetailsMissing =
+      otherSelected && getOtherDetails(question.id).trim().length === 0;
+
+    if (!question.required) return otherDetailsMissing;
+
     if (question.type === "multiple_choice") {
-      return !Array.isArray(answer) || answer.length === 0;
+      return !Array.isArray(answer) || answer.length === 0 || otherDetailsMissing;
     }
     if (question.type === "checkbox_matrix") {
       if (!answer || typeof answer !== "object" || Array.isArray(answer)) return true;
@@ -400,10 +468,10 @@ export default function FeedbackForm() {
       return Object.values(matrix).some((value) => String(value ?? "").trim().length === 0);
     }
     if (question.type === "single_choice") {
-      return String(answer ?? "").trim().length === 0;
+      return String(answer ?? "").trim().length === 0 || otherDetailsMissing;
     }
     if (question.type === "combobox") {
-      return String(answer ?? "").trim().length === 0;
+      return String(answer ?? "").trim().length === 0 || otherDetailsMissing;
     }
     if (question.type === "rank") {
       return !Array.isArray(answer) || answer.length === 0;
@@ -423,7 +491,12 @@ export default function FeedbackForm() {
     if (question.type === "text") {
       return String(answer ?? "").trim().length === 0;
     }
-    return answer === undefined || answer === null || Number.isNaN(Number(answer));
+    return (
+      answer === undefined ||
+      answer === null ||
+      Number.isNaN(Number(answer)) ||
+      otherDetailsMissing
+    );
   };
 
   const validateDynamicQuestions = (questionsToValidate = visibleDynamicQuestions) => {
@@ -434,7 +507,9 @@ export default function FeedbackForm() {
     );
 
     if (missingRequired) {
-      setSubmitError("Please complete all required questions before submitting.");
+      setSubmitError(
+        "Please complete all required questions and add details for any Other selections before submitting.",
+      );
       return false;
     }
 
@@ -444,7 +519,7 @@ export default function FeedbackForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!linkData || !code) return;
+    if (!linkData || !code || isPreviewMode) return;
 
     setSubmitError(null);
     setShowValidationErrors(true);
@@ -587,12 +662,20 @@ export default function FeedbackForm() {
   }
 
   const handleMultipleChoiceToggle = (questionId: string, option: string) => {
+    if (isPreviewMode) return;
+
     const current = (dynamicAnswers[questionId] as string[] | undefined) ?? [];
     const next = current.includes(option)
       ? current.filter((value) => value !== option)
       : [...current, option];
 
-    setDynamicAnswers((prev) => ({ ...prev, [questionId]: next }));
+    setDynamicAnswers((prev) => {
+      const nextAnswers = { ...prev, [questionId]: next };
+      if (findOtherOptionLabel(next) === null) {
+        delete nextAnswers[getOtherAnswerKey(questionId)];
+      }
+      return nextAnswers;
+    });
   };
 
   const handleRemoveUploadedFile = (questionId: string, filePath: string) => {
@@ -686,21 +769,25 @@ export default function FeedbackForm() {
     }
   };
 
-  const renderDynamicQuestion = (question: CampaignQuestion, index: number) => {
+  const renderDynamicQuestion = (question: CampaignQuestion) => {
     const isRequired = question.required;
     const commonDescription = isRequired ? "Required" : "Optional";
+    const otherDetails = getOtherDetails(question.id);
+    const showOtherDetails = isOtherOptionSelected(question, dynamicAnswers[question.id]);
 
     if (question.type === "scale") {
       return (
         <SatisfactionSlider
           value={Number(dynamicAnswers[question.id] ?? question.min ?? 1)}
-          onChange={(value) =>
-            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }))
-          }
+          onChange={(value) => {
+            if (isPreviewMode) return;
+            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }));
+          }}
           min={question.min ?? 1}
           max={question.max ?? 10}
           label={question.question}
           description={commonDescription}
+          disabled={isPreviewMode}
         />
       );
     }
@@ -709,11 +796,13 @@ export default function FeedbackForm() {
       return (
         <StarRating
           value={Number(dynamicAnswers[question.id] ?? 3)}
-          onChange={(value) =>
-            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }))
-          }
+          onChange={(value) => {
+            if (isPreviewMode) return;
+            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }));
+          }}
           label={question.question}
           description={commonDescription}
+          disabled={isPreviewMode}
         />
       );
     }
@@ -722,21 +811,24 @@ export default function FeedbackForm() {
       return (
         <SatisfactionSlider
           value={Number(dynamicAnswers[question.id] ?? 0)}
-          onChange={(value) =>
-            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }))
-          }
+          onChange={(value) => {
+            if (isPreviewMode) return;
+            setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }));
+          }}
           min={question.min ?? 0}
           max={question.max ?? 10}
           label={question.question}
           description={commonDescription}
+          disabled={isPreviewMode}
         />
       );
     }
 
     if (question.type === "multiple_choice") {
-      const options = sanitizeOptions(question.options);
+      const options = sanitizeQuestionOptions(question.options);
       const selected =
         (dynamicAnswers[question.id] as string[] | undefined) ?? [];
+      const otherOption = findOtherOptionLabel(options);
 
       return (
         <div className="space-y-4">
@@ -752,6 +844,7 @@ export default function FeedbackForm() {
               >
                 <Checkbox
                   checked={selected.includes(option)}
+                  disabled={isPreviewMode}
                   onCheckedChange={() =>
                     handleMultipleChoiceToggle(question.id, option)
                   }
@@ -760,13 +853,28 @@ export default function FeedbackForm() {
               </label>
             ))}
           </div>
+          {otherOption && showOtherDetails && (
+            <div className="space-y-2 rounded-lg border border-dashed bg-muted/20 p-3">
+              <Label htmlFor={`${question.id}-other-details`} className="text-sm font-medium">
+                Tell us more about "{otherOption}"
+              </Label>
+              <Input
+                id={`${question.id}-other-details`}
+                value={otherDetails}
+                onChange={(event) => setOtherDetails(question.id, event.target.value)}
+                placeholder="Add more context"
+                disabled={isPreviewMode}
+              />
+            </div>
+          )}
         </div>
       );
     }
 
     if (question.type === "combobox") {
-      const options = sanitizeOptions(question.options);
+      const options = sanitizeQuestionOptions(question.options);
       const selected = String(dynamicAnswers[question.id] ?? "");
+      const otherOption = findOtherOptionLabel(options);
       return (
         <div className="space-y-4">
           <div>
@@ -775,9 +883,16 @@ export default function FeedbackForm() {
           </div>
           <Select
             value={selected}
-            onValueChange={(value) =>
-              setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }))
-            }
+            onValueChange={(value) => {
+              if (isPreviewMode) return;
+              setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }));
+              if (
+                !isOtherOptionSelected({ type: question.type, options: question.options }, value)
+              ) {
+                clearOtherDetails(question.id);
+              }
+            }}
+            disabled={isPreviewMode}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select an option" />
@@ -790,13 +905,28 @@ export default function FeedbackForm() {
               ))}
             </SelectContent>
           </Select>
+          {otherOption && showOtherDetails && (
+            <div className="space-y-2 rounded-lg border border-dashed bg-muted/20 p-3">
+              <Label htmlFor={`${question.id}-other-details`} className="text-sm font-medium">
+                Tell us more about "{otherOption}"
+              </Label>
+              <Input
+                id={`${question.id}-other-details`}
+                value={otherDetails}
+                onChange={(event) => setOtherDetails(question.id, event.target.value)}
+                placeholder="Add more context"
+                disabled={isPreviewMode}
+              />
+            </div>
+          )}
         </div>
       );
     }
 
     if (question.type === "single_choice") {
-      const options = sanitizeOptions(question.options);
+      const options = sanitizeQuestionOptions(question.options);
       const selected = String(dynamicAnswers[question.id] ?? "");
+      const otherOption = findOtherOptionLabel(options);
 
       return (
         <div className="space-y-4">
@@ -806,9 +936,15 @@ export default function FeedbackForm() {
           </div>
           <RadioGroup
             value={selected}
-            onValueChange={(value) =>
-              setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }))
-            }
+            onValueChange={(value) => {
+              if (isPreviewMode) return;
+              setDynamicAnswers((prev) => ({ ...prev, [question.id]: value }));
+              if (
+                !isOtherOptionSelected({ type: question.type, options: question.options }, value)
+              ) {
+                clearOtherDetails(question.id);
+              }
+            }}
             className="space-y-3"
           >
             {options.map((option) => {
@@ -818,7 +954,7 @@ export default function FeedbackForm() {
                   key={option}
                   className="flex items-center space-x-2 rounded-lg border p-3"
                 >
-                  <RadioGroupItem value={option} id={optionId} />
+                  <RadioGroupItem value={option} id={optionId} disabled={isPreviewMode} />
                   <Label htmlFor={optionId} className="font-normal text-sm">
                     {option}
                   </Label>
@@ -826,6 +962,20 @@ export default function FeedbackForm() {
               );
             })}
           </RadioGroup>
+          {otherOption && showOtherDetails && (
+            <div className="space-y-2 rounded-lg border border-dashed bg-muted/20 p-3">
+              <Label htmlFor={`${question.id}-other-details`} className="text-sm font-medium">
+                Tell us more about "{otherOption}"
+              </Label>
+              <Input
+                id={`${question.id}-other-details`}
+                value={otherDetails}
+                onChange={(event) => setOtherDetails(question.id, event.target.value)}
+                placeholder="Add more context"
+                disabled={isPreviewMode}
+              />
+            </div>
+          )}
         </div>
       );
     }
@@ -837,6 +987,7 @@ export default function FeedbackForm() {
         (dynamicAnswers[question.id] as MatrixAnswer | undefined) || {};
 
       const toggleMatrixCheckbox = (row: string, column: string) => {
+        if (isPreviewMode) return;
         const rowSelection = Array.isArray(value[row]) ? (value[row] as string[]) : [];
         const nextSelection = rowSelection.includes(column)
           ? rowSelection.filter((item) => item !== column)
@@ -851,6 +1002,7 @@ export default function FeedbackForm() {
       };
 
       const setMatrixRadio = (row: string, column: string) => {
+        if (isPreviewMode) return;
         setDynamicAnswers((prev) => ({
           ...prev,
           [question.id]: {
@@ -897,6 +1049,7 @@ export default function FeedbackForm() {
                                 ? (value[row] as string[]).includes(column)
                                 : false
                             }
+                            disabled={isPreviewMode}
                             onCheckedChange={() => toggleMatrixCheckbox(row, column)}
                           />
                         ) : (
@@ -905,6 +1058,7 @@ export default function FeedbackForm() {
                             name={`${question.id}-${row}`}
                             checked={String(value[row] ?? "") === column}
                             onChange={() => setMatrixRadio(row, column)}
+                            disabled={isPreviewMode}
                             className="h-4 w-4 accent-primary"
                           />
                         )}
@@ -927,6 +1081,7 @@ export default function FeedbackForm() {
           <Input
             type="date"
             value={String(dynamicAnswers[question.id] ?? "")}
+            disabled={isPreviewMode}
             onChange={(event) =>
               setDynamicAnswers((prev) => ({
                 ...prev,
@@ -955,7 +1110,7 @@ export default function FeedbackForm() {
             type="file"
             multiple={maxFiles > 1}
             accept={buildFileUploadAccept(question)}
-            disabled={isUploading || uploadedFiles.length >= maxFiles}
+            disabled={isPreviewMode || isUploading || uploadedFiles.length >= maxFiles}
             onChange={(event) => {
               void handleFileUpload(question, event.target.files);
               event.target.value = "";
@@ -994,6 +1149,7 @@ export default function FeedbackForm() {
                     className="h-8 w-8 shrink-0"
                     onClick={() => handleRemoveUploadedFile(question.id, file.path)}
                     title="Remove file"
+                    disabled={isPreviewMode}
                   >
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
@@ -1012,6 +1168,7 @@ export default function FeedbackForm() {
         [];
 
       const moveRank = (from: number, to: number) => {
+        if (isPreviewMode) return;
         if (to < 0 || to >= current.length) return;
         const reordered = [...current];
         const [item] = reordered.splice(from, 1);
@@ -1041,7 +1198,7 @@ export default function FeedbackForm() {
                     size="icon"
                     className="h-7 w-7"
                     onClick={() => moveRank(itemIndex, itemIndex - 1)}
-                    disabled={itemIndex === 0}
+                    disabled={isPreviewMode || itemIndex === 0}
                   >
                     <ArrowUp className="h-3.5 w-3.5" />
                   </Button>
@@ -1051,7 +1208,7 @@ export default function FeedbackForm() {
                     size="icon"
                     className="h-7 w-7"
                     onClick={() => moveRank(itemIndex, itemIndex + 1)}
-                    disabled={itemIndex === current.length - 1}
+                    disabled={isPreviewMode || itemIndex === current.length - 1}
                   >
                     <ArrowDown className="h-3.5 w-3.5" />
                   </Button>
@@ -1079,6 +1236,7 @@ export default function FeedbackForm() {
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <Input
             value={String(dynamicAnswers[question.id] ?? "")}
+            disabled={isPreviewMode}
             onChange={(event) =>
               setDynamicAnswers((prev) => ({
                 ...prev,
@@ -1098,6 +1256,7 @@ export default function FeedbackForm() {
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <Textarea
             value={String(dynamicAnswers[question.id] ?? "")}
+            disabled={isPreviewMode}
             onChange={(event) =>
               setDynamicAnswers((prev) => ({
                 ...prev,
@@ -1118,6 +1277,7 @@ export default function FeedbackForm() {
         <p className="text-sm text-muted-foreground">{commonDescription}</p>
         <Input
           value={String(dynamicAnswers[question.id] ?? "")}
+          disabled={isPreviewMode}
           onChange={(event) =>
             setDynamicAnswers((prev) => ({
               ...prev,
@@ -1131,115 +1291,209 @@ export default function FeedbackForm() {
   };
 
   return (
-    <div className="admin-shell-bg warm-feedback-bg min-h-screen py-8 px-4">
-      <div className="max-w-2xl mx-auto">
-        {/* Header */}
-        <div className="warm-feedback-header text-center mb-8 rounded-3xl p-6">
-          {linkData?.company_logo_url ? (
-            <img
-              src={linkData.company_logo_url}
-              alt={`${linkData.company_name} logo`}
-              className="h-16 w-auto mx-auto mb-4 object-contain"
-            />
-          ) : linkData?.company_name ? (
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-primary/10 rounded-full text-primary mb-4">
-              <Building2 className="h-4 w-4" />
-              <span className="font-medium">{linkData.company_name}</span>
+    <div className="admin-shell-bg warm-feedback-bg min-h-screen px-4 py-8">
+      <div className="mx-auto max-w-4xl space-y-6">
+        <div className="warm-feedback-header rounded-[28px] border border-border/60 p-6 shadow-sm md:p-8">
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="space-y-4">
+              {linkData?.company_logo_url ? (
+                <div>
+                  <img
+                    src={linkData.company_logo_url}
+                    alt={`${linkData.company_name} logo`}
+                    className="h-16 w-auto object-contain"
+                  />
+                  {linkData.company_name && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {linkData.company_name}
+                    </p>
+                  )}
+                </div>
+              ) : linkData?.company_name ? (
+                <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2 text-primary">
+                  <Building2 className="h-4 w-4" />
+                  <span className="font-medium">{linkData.company_name}</span>
+                </div>
+              ) : null}
+              <div className="space-y-2">
+                <h1 className="text-3xl font-bold tracking-tight text-foreground md:text-4xl">
+                  {linkData?.campaign_name}
+                </h1>
+                <p className="max-w-2xl text-sm leading-6 text-muted-foreground md:text-base">
+                  {linkData?.campaign_description ||
+                    "Your feedback is completely anonymous and helps us improve our services."}
+                </p>
+              </div>
             </div>
-          ) : null}
-          {linkData?.company_name && linkData?.company_logo_url && (
-            <p className="text-sm text-muted-foreground mb-2">
-              {linkData.company_name}
-            </p>
-          )}
-          <h1 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight">
-            {linkData?.campaign_name}
-          </h1>
-          {linkData?.campaign_description ? (
-            <p className="mt-2 text-muted-foreground">
-              {linkData.campaign_description}
-            </p>
-          ) : (
-            <p className="mt-2 text-muted-foreground">
-              Your feedback is completely anonymous and helps us improve our
-              services.
-            </p>
-          )}
+
+            <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/75 p-4 md:min-w-[240px]">
+              <div>
+                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                  Mode
+                </p>
+                <p className="mt-1 text-sm font-semibold text-foreground">
+                  {isPreviewMode ? "Preview only" : "Live form"}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground">Sections</p>
+                  <p className="mt-1 text-2xl font-semibold text-foreground">
+                    {hasDynamicQuestions ? displayedSections.length : 1}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-muted/40 p-3">
+                  <p className="text-xs text-muted-foreground">Questions</p>
+                  <p className="mt-1 text-2xl font-semibold text-foreground">
+                    {hasDynamicQuestions ? totalQuestionCount : 5}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {isPreviewMode
+                  ? "Preview keeps the published styling, disables responses, and shows all sections for review."
+                  : "Complete each section and submit when you reach the end of the form."}
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit}>
           <div className="space-y-6">
-            {submitError && (
+            {submitError && !isPreviewMode && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 {submitError}
               </div>
             )}
-            {hasDynamicQuestions ? (
-              <>
-                {activeSection && visibleSections.length > 1 && (
-                  <Card className="warm-question-card transition-shadow duration-200">
-                    <CardHeader>
-                      <CardTitle className="text-lg">
-                        {activeSection.title}
-                      </CardTitle>
-                      <CardDescription>
-                        Section {currentSectionIndex + 1} of {visibleSections.length}
-                        {activeSection.description
-                          ? ` - ${activeSection.description}`
-                          : ""}
-                      </CardDescription>
-                    </CardHeader>
-                  </Card>
-                )}
 
-                {activeSectionQuestions.map((question, index) => (
-                  <Card
-                    key={question.id}
-                    id={`feedback-question-${question.id}`}
-                    className={`warm-question-card transition-shadow duration-200 ${
-                      showValidationErrors && isRequiredQuestionMissing(question)
-                        ? "border-destructive/70 ring-1 ring-destructive/40"
-                        : ""
-                    }`}
-                    style={{ scrollMarginTop: "1rem" }}
-                  >
-                    <CardHeader>
-                      <CardTitle className="text-lg">
-                        Question {index + 1}
-                        {question.required && (
-                          <span className="ml-1 text-destructive">*</span>
-                        )}
-                      </CardTitle>
-                      <CardDescription>
-                        {question.required
-                          ? "Required question"
-                          : "Optional question"}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {renderDynamicQuestion(question, index)}
-                      {showValidationErrors &&
-                        isRequiredQuestionMissing(question) && (
-                          <div className="mt-4 flex items-center gap-2 text-destructive">
-                            <AlertCircle className="h-4 w-4" />
-                            <p className="text-sm">This is a required question</p>
-                          </div>
-                        )}
+            {isPreviewMode && (
+              <Card className="border-primary/20 bg-primary/5">
+                <CardContent className="flex items-start gap-3 pt-6">
+                  <AlertCircle className="mt-0.5 h-5 w-5 text-primary" />
+                  <div className="space-y-1">
+                    <p className="font-medium text-foreground">Preview mode is active.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Inputs are intentionally disabled. Conditional questions and later sections are shown so you can review the full structure before publishing.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {hasDynamicQuestions ? (
+              isPreviewMode ? (
+                displayedSections.length === 0 ? (
+                  <Card className="warm-question-card transition-shadow duration-200">
+                    <CardContent className="pt-6 text-sm text-muted-foreground">
+                      No sections are available in this campaign yet.
                     </CardContent>
                   </Card>
-                ))}
-              </>
+                ) : (
+                  displayedSections.map((section, sectionIndex) => (
+                    <div key={section.id} className="space-y-4">
+                      <Card className="warm-question-card border-border/70 shadow-sm">
+                        <CardHeader>
+                          <CardTitle className="flex items-center gap-2 text-lg">
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                              {sectionIndex + 1}
+                            </span>
+                            {section.title}
+                          </CardTitle>
+                          <CardDescription>
+                            {section.description || "Section preview"}
+                          </CardDescription>
+                        </CardHeader>
+                      </Card>
+
+                      {section.questions.map((question) => {
+                        const questionNumber =
+                          displayedQuestionOrder.findIndex(
+                            (candidate) => candidate.id === question.id,
+                          ) + 1;
+
+                        return (
+                          <Card
+                            key={question.id}
+                            id={`feedback-question-${question.id}`}
+                            className="warm-question-card border-border/70 shadow-sm"
+                            style={{ scrollMarginTop: "1rem" }}
+                          >
+                            <CardHeader>
+                              <CardTitle className="text-lg">
+                                Question {questionNumber}
+                                {question.required && (
+                                  <span className="ml-1 text-destructive">*</span>
+                                )}
+                              </CardTitle>
+                              <CardDescription>
+                                {question.required ? "Required question" : "Optional question"}
+                              </CardDescription>
+                            </CardHeader>
+                            <CardContent>{renderDynamicQuestion(question)}</CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  ))
+                )
+              ) : (
+                <>
+                  {activeSection && visibleSections.length > 1 && (
+                    <Card className="warm-question-card border-border/70 shadow-sm">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{activeSection.title}</CardTitle>
+                        <CardDescription>
+                          Section {currentSectionIndex + 1} of {visibleSections.length}
+                          {activeSection.description ? ` - ${activeSection.description}` : ""}
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  )}
+
+                  {activeSectionQuestions.map((question, index) => (
+                    <Card
+                      key={question.id}
+                      id={`feedback-question-${question.id}`}
+                      className={`warm-question-card border-border/70 shadow-sm ${
+                        showValidationErrors && isRequiredQuestionMissing(question)
+                          ? "border-destructive/70 ring-1 ring-destructive/40"
+                          : ""
+                      }`}
+                      style={{ scrollMarginTop: "1rem" }}
+                    >
+                      <CardHeader>
+                        <CardTitle className="text-lg">
+                          Question {index + 1}
+                          {question.required && (
+                            <span className="ml-1 text-destructive">*</span>
+                          )}
+                        </CardTitle>
+                        <CardDescription>
+                          {question.required ? "Required question" : "Optional question"}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        {renderDynamicQuestion(question)}
+                        {showValidationErrors && isRequiredQuestionMissing(question) && (
+                          <div className="mt-4 flex items-center gap-2 text-destructive">
+                            <AlertCircle className="h-4 w-4" />
+                            <p className="text-sm">
+                              This question still needs an answer or more detail.
+                            </p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </>
+              )
             ) : (
               <>
-                <Card className="warm-question-card transition-shadow duration-200">
+                <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">
-                      Overall Experience
-                    </CardTitle>
+                    <CardTitle className="text-lg">Overall Experience</CardTitle>
                     <CardDescription>
-                      How would you rate your overall satisfaction with our
-                      services?
+                      How would you rate your overall satisfaction with our services?
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1253,15 +1507,16 @@ export default function FeedbackForm() {
                       }
                       label="Overall Satisfaction"
                       description="Rate from 1 (Very Dissatisfied) to 10 (Very Satisfied)"
+                      disabled={isPreviewMode}
                     />
                   </CardContent>
                 </Card>
 
-                <Card className="warm-question-card transition-shadow duration-200">
+                <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
                     <CardTitle className="text-lg">Service Quality</CardTitle>
                     <CardDescription>
-                      How would you rate the quality of our service/product?
+                      How would you rate the quality of our service or product?
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1271,16 +1526,16 @@ export default function FeedbackForm() {
                         setFormData({ ...formData, service_quality: value })
                       }
                       label="Service Quality Rating"
+                      disabled={isPreviewMode}
                     />
                   </CardContent>
                 </Card>
 
-                <Card className="warm-question-card transition-shadow duration-200">
+                <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
                     <CardTitle className="text-lg">Recommendation</CardTitle>
                     <CardDescription>
-                      How likely are you to recommend our services to a
-                      colleague?
+                      How likely are you to recommend our services to a colleague?
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1293,18 +1548,16 @@ export default function FeedbackForm() {
                         })
                       }
                       label="Recommendation Likelihood"
+                      disabled={isPreviewMode}
                     />
                   </CardContent>
                 </Card>
 
-                <Card className="warm-question-card transition-shadow duration-200">
+                <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">
-                      Areas for Improvement
-                    </CardTitle>
+                    <CardTitle className="text-lg">Areas for Improvement</CardTitle>
                     <CardDescription>
-                      Select any areas where you think we could improve
-                      (optional)
+                      Select any areas where you think we could improve.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1314,17 +1567,16 @@ export default function FeedbackForm() {
                         setFormData({ ...formData, improvement_areas: value })
                       }
                       label="Select all that apply"
+                      disabled={isPreviewMode}
                     />
                   </CardContent>
                 </Card>
 
-                <Card className="warm-question-card transition-shadow duration-200">
+                <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">
-                      Additional Comments
-                    </CardTitle>
+                    <CardTitle className="text-lg">Additional Comments</CardTitle>
                     <CardDescription>
-                      Share any additional thoughts or suggestions (optional)
+                      Share any additional thoughts or suggestions.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -1339,100 +1591,103 @@ export default function FeedbackForm() {
                       placeholder="Your comments here..."
                       rows={4}
                       className="resize-none"
+                      disabled={isPreviewMode}
                     />
                   </CardContent>
                 </Card>
               </>
             )}
 
-            {hasDynamicQuestions ? (
-              <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  className="sm:min-w-[140px]"
-                  onClick={() => {
-                    setPendingTargetQuestionId(null);
-                    setSectionHistory((previous) => {
-                      if (previous.length === 0) {
-                        setCurrentSectionIndex((current) => Math.max(current - 1, 0));
-                        return previous;
-                      }
-
-                      const nextHistory = [...previous];
-                      const previousSectionId = nextHistory.pop();
-                      const previousIndex = visibleSections.findIndex(
-                        (section) => section.id === previousSectionId,
-                      );
-
-                      if (previousIndex >= 0) {
-                        setCurrentSectionIndex(previousIndex);
-                      } else {
-                        setCurrentSectionIndex((current) => Math.max(current - 1, 0));
-                      }
-
-                      return nextHistory;
-                    });
-                  }}
-                  disabled={!canGoBack || isSubmitting}
-                >
-                  <ArrowLeft className="mr-2 h-4 w-4" />
-                  Back
-                </Button>
-
-                {isLastSection ? (
-                  <Button
-                    type="submit"
-                    size="lg"
-                    className="sm:min-w-[180px]"
-                    disabled={isSubmitting || anyFilesUploading}
-                  >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Submitting...
-                      </>
-                    ) : (
-                      "Submit Feedback"
-                    )}
-                  </Button>
-                ) : (
+            {!isPreviewMode &&
+              (hasDynamicQuestions ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:justify-between">
                   <Button
                     type="button"
+                    variant="outline"
                     size="lg"
-                    className="sm:min-w-[180px]"
-                    onClick={handleContinueSection}
-                    disabled={isSubmitting || anyFilesUploading}
+                    className="sm:min-w-[140px]"
+                    onClick={() => {
+                      setPendingTargetQuestionId(null);
+                      setSectionHistory((previous) => {
+                        if (previous.length === 0) {
+                          setCurrentSectionIndex((current) => Math.max(current - 1, 0));
+                          return previous;
+                        }
+
+                        const nextHistory = [...previous];
+                        const previousSectionId = nextHistory.pop();
+                        const previousIndex = visibleSections.findIndex(
+                          (section) => section.id === previousSectionId,
+                        );
+
+                        if (previousIndex >= 0) {
+                          setCurrentSectionIndex(previousIndex);
+                        } else {
+                          setCurrentSectionIndex((current) => Math.max(current - 1, 0));
+                        }
+
+                        return nextHistory;
+                      });
+                    }}
+                    disabled={!canGoBack || isSubmitting}
                   >
-                    {activeSection?.continueLabel?.trim() || "Continue"}
-                    <ArrowRight className="ml-2 h-4 w-4" />
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back
                   </Button>
-                )}
-              </div>
-            ) : (
-              <Button
-                type="submit"
-                size="lg"
-                className="w-full"
-                disabled={isSubmitting || anyFilesUploading}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
-                  </>
-                ) : (
-                  "Submit Feedback"
-                )}
-              </Button>
-            )}
+
+                  {isLastSection ? (
+                    <Button
+                      type="submit"
+                      size="lg"
+                      className="sm:min-w-[180px]"
+                      disabled={isSubmitting || anyFilesUploading}
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit Feedback"
+                      )}
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="lg"
+                      className="sm:min-w-[180px]"
+                      onClick={handleContinueSection}
+                      disabled={isSubmitting || anyFilesUploading}
+                    >
+                      {activeSection?.continueLabel?.trim() || "Continue"}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <Button
+                  type="submit"
+                  size="lg"
+                  className="w-full"
+                  disabled={isSubmitting || anyFilesUploading}
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    "Submit Feedback"
+                  )}
+                </Button>
+              ))}
           </div>
         </form>
 
-        {/* Footer */}
-        <p className="text-center text-xs text-muted-foreground mt-8">
-          This survey is confidential. No personal information is collected.
+        <p className="text-center text-xs text-muted-foreground">
+          {isPreviewMode
+            ? "Preview mode does not collect or submit any responses."
+            : "This survey is confidential. No personal information is collected."}
         </p>
       </div>
     </div>

@@ -58,7 +58,7 @@ interface StepQuestionsProps {
 
 const questionTypeLabels: Record<CampaignQuestion["type"], string> = {
   rating: "Star Rating (1-5)",
-  scale: "Scale (1-10)",
+  scale: "Linear Scale (1-10)",
   multiple_choice: "Checkbox (Multiple Choice)",
   single_choice: "Radio Button",
   label: "Label",
@@ -81,7 +81,7 @@ const questionTypeDescriptions: Partial<Record<CampaignQuestion["type"], string>
   textbox: "Short written answer.",
   textarea: "Long written answer.",
   rating: "1 to 5 star score.",
-  scale: "Numeric scale response.",
+  scale: "Numeric response on a linear scale.",
   nps: "0 to 10 recommendation score.",
   checkbox_matrix: "Grid with multiple selections.",
   radio_matrix: "Grid with one choice per row.",

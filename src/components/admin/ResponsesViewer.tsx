@@ -63,6 +63,11 @@ import type { Company, Campaign, UploadedFileAnswer } from "@/lib/supabase-types
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 import {
+  findOtherOptionLabel,
+  getOtherAnswerText,
+  getQuestionIdFromOtherAnswerKey,
+} from "@/lib/campaign-answer-utils";
+import {
   BarChart,
   Bar,
   XAxis,
@@ -168,7 +173,7 @@ const RESPONSE_PAGE_SIZE = 50;
 
 const questionTypeLabels: Record<string, string> = {
   rating: "Rating",
-  scale: "Scale",
+  scale: "Linear Scale",
   multiple_choice: "Checkbox",
   single_choice: "Radio",
   combobox: "Combobox",
@@ -295,6 +300,12 @@ function extractResponseText(response: ResponseWithDetails): string[] {
     if (typeof value !== "string") return;
     const trimmed = value.trim();
     if (trimmed) texts.push(trimmed);
+  });
+  questions.forEach((question) => {
+    const otherDetails = getOtherAnswerText(answerMap, question.id).trim();
+    if (otherDetails) {
+      texts.push(otherDetails);
+    }
   });
   return texts;
 }
@@ -1167,8 +1178,24 @@ export function ResponsesViewer() {
 
     const npsValue = npsQ ? toNumberOrNull(answers[npsQ.id]) : null;
     const areasValue = multipleQ ? answers[multipleQ.id] : null;
+    const multipleOtherOption = multipleQ
+      ? findOtherOptionLabel(multipleQ.options)
+      : null;
+    const multipleOtherDetails = multipleQ
+      ? getOtherAnswerText(answers, multipleQ.id).trim()
+      : "";
     const dynamicAreas = Array.isArray(areasValue)
-      ? areasValue.map((v) => String(v))
+      ? areasValue.map((v) => {
+          const label = String(v);
+          if (
+            multipleOtherOption &&
+            label === multipleOtherOption &&
+            multipleOtherDetails
+          ) {
+            return `${label}: ${multipleOtherDetails}`;
+          }
+          return label;
+        })
       : [];
 
     return {
@@ -1258,32 +1285,53 @@ export function ResponsesViewer() {
       });
 
     const legacyOrExtra = Object.entries(answerMap)
-      .filter(([key]) => !seen.has(key))
+      .filter(([key]) => !seen.has(key) && !getQuestionIdFromOtherAnswerKey(key))
       .map(([key, answer]) => ({
         key,
         question: key,
         type: "unknown",
         answer,
+        otherText: "",
       }));
 
-    return [...orderedFromQuestions, ...legacyOrExtra];
+    return [
+      ...orderedFromQuestions.map((entry) => {
+        const companionText = getOtherAnswerText(answerMap, entry.key).trim();
+        return {
+          ...entry,
+          otherText: companionText,
+        };
+      }),
+      ...legacyOrExtra,
+    ];
   }, [selectedResponse]);
 
-  const formatDynamicAnswerValue = (value: unknown) => {
+  const formatDynamicAnswerValue = (value: unknown, otherText?: string) => {
     if (isUploadedFileAnswers(value)) {
       return value.length > 0
         ? value.map((item) => item.originalName).join(", ")
         : "No file uploaded";
     }
     if (Array.isArray(value)) {
-      return value.length > 0
-        ? value.map((item) => String(item)).join(", ")
+      const mapped = value.map((item) => {
+        const label = String(item);
+        if (otherText && /^other\b/i.test(label)) {
+          return `${label}: ${otherText}`;
+        }
+        return label;
+      });
+      return mapped.length > 0
+        ? mapped.join(", ")
         : "No selection";
     }
     if (value === null || value === undefined) return "No answer";
     if (typeof value === "object") return JSON.stringify(value);
     const asText = String(value).trim();
-    return asText.length > 0 ? asText : "No answer";
+    if (!asText.length) return "No answer";
+    if (otherText && /^other\b/i.test(asText)) {
+      return `${asText}: ${otherText}`;
+    }
+    return asText;
   };
 
   const openUploadedFile = async (file: UploadedFileAnswer) => {
@@ -2252,7 +2300,7 @@ export function ResponsesViewer() {
                               </div>
                             ) : (
                               <p className="text-sm mt-1 break-words">
-                                {formatDynamicAnswerValue(entry.answer)}
+                                {formatDynamicAnswerValue(entry.answer, entry.otherText)}
                               </p>
                             )}
                           </div>

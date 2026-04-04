@@ -5,6 +5,7 @@ interface LikertScaleProps {
   onChange: (value: number) => void;
   label: string;
   description?: string;
+  disabled?: boolean;
 }
 
 const options = [
@@ -20,6 +21,7 @@ export function LikertScale({
   onChange,
   label,
   description,
+  disabled = false,
 }: LikertScaleProps) {
   return (
     <div className="space-y-4">
@@ -35,8 +37,10 @@ export function LikertScale({
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
+            disabled={disabled}
             className={cn(
               "flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+              disabled && "cursor-not-allowed opacity-80",
               value === option.value
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border hover:border-muted-foreground/50 hover:bg-muted",

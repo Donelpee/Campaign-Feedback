@@ -17,6 +17,10 @@ import {
   formatFileUploadSummary,
   getFileUploadMaxFiles,
 } from "@/lib/file-upload";
+import {
+  findOtherOptionLabel,
+  sanitizeQuestionOptions,
+} from "@/lib/campaign-answer-utils";
 
 interface QuestionPreviewProps {
   question: CampaignQuestion;
@@ -24,15 +28,11 @@ interface QuestionPreviewProps {
 }
 
 export function QuestionPreview({ question, className }: QuestionPreviewProps) {
-  const sanitizeOptions = (values?: string[]) =>
-    (values || [])
-      .map((value) => value.trim())
-      .filter((value, index, arr) => value.length > 0 && arr.indexOf(value) === index);
-
   if (question.type === "multiple_choice") {
-    const options = sanitizeOptions(question.options).length
-      ? sanitizeOptions(question.options)
+    const options = sanitizeQuestionOptions(question.options).length
+      ? sanitizeQuestionOptions(question.options)
       : ["Option 1", "Option 2"];
+    const otherOption = findOtherOptionLabel(options);
     return (
       <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
         {options.map((option) => (
@@ -44,33 +44,46 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
             <span className="text-sm">{option}</span>
           </div>
         ))}
+        {otherOption && (
+          <Input
+            placeholder={`Add detail for "${otherOption}"`}
+            disabled
+          />
+        )}
       </div>
     );
   }
 
   if (question.type === "single_choice") {
-    const options = sanitizeOptions(question.options).length
-      ? sanitizeOptions(question.options)
+    const options = sanitizeQuestionOptions(question.options).length
+      ? sanitizeQuestionOptions(question.options)
       : ["Option 1", "Option 2"];
+    const otherOption = findOtherOptionLabel(options);
     return (
-      <RadioGroup
-        className={className ? `space-y-2 ${className}` : "space-y-2"}
-      >
-        {options.map((option) => {
-          const optionId = `preview-${question.id}-${option}`;
-          return (
-            <div
-              key={option}
-              className="flex items-center gap-2 rounded-md border p-2"
-            >
-              <RadioGroupItem value={option} id={optionId} />
-              <Label htmlFor={optionId} className="text-sm font-normal">
-                {option}
-              </Label>
-            </div>
-          );
-        })}
-      </RadioGroup>
+      <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
+        <RadioGroup className="space-y-2">
+          {options.map((option) => {
+            const optionId = `preview-${question.id}-${option}`;
+            return (
+              <div
+                key={option}
+                className="flex items-center gap-2 rounded-md border p-2"
+              >
+                <RadioGroupItem value={option} id={optionId} />
+                <Label htmlFor={optionId} className="text-sm font-normal">
+                  {option}
+                </Label>
+              </div>
+            );
+          })}
+        </RadioGroup>
+        {otherOption && (
+          <Input
+            placeholder={`Add detail for "${otherOption}"`}
+            disabled
+          />
+        )}
+      </div>
     );
   }
 
@@ -113,22 +126,30 @@ export function QuestionPreview({ question, className }: QuestionPreviewProps) {
   }
 
   if (question.type === "combobox") {
-    const options = sanitizeOptions(question.options).length
-      ? sanitizeOptions(question.options)
+    const options = sanitizeQuestionOptions(question.options).length
+      ? sanitizeQuestionOptions(question.options)
       : ["Option 1", "Option 2"];
     return (
-      <Select disabled>
-        <SelectTrigger className={className}>
-          <SelectValue placeholder="Select one option" />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option, index) => (
-            <SelectItem key={`${option}-${index}`} value={option}>
-              {option}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className={className ? `space-y-2 ${className}` : "space-y-2"}>
+        <Select disabled>
+          <SelectTrigger>
+            <SelectValue placeholder="Select one option" />
+          </SelectTrigger>
+          <SelectContent>
+            {options.map((option, index) => (
+              <SelectItem key={`${option}-${index}`} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {findOtherOptionLabel(options) && (
+          <Input
+            placeholder='Add detail for "Other"'
+            disabled
+          />
+        )}
+      </div>
     );
   }
 

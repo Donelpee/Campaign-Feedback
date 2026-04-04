@@ -8,6 +8,7 @@ interface SatisfactionSliderProps {
   max?: number;
   label: string;
   description?: string;
+  disabled?: boolean;
 }
 
 export function SatisfactionSlider({
@@ -17,6 +18,7 @@ export function SatisfactionSlider({
   max = 10,
   label,
   description,
+  disabled = false,
 }: SatisfactionSliderProps) {
   const getColorClass = (val: number) => {
     const percentage = (val - min) / (max - min);
@@ -45,6 +47,7 @@ export function SatisfactionSlider({
         max={max}
         step={1}
         className="w-full"
+        disabled={disabled}
       />
       <div className="flex justify-between text-xs text-muted-foreground">
         <span>Very Dissatisfied</span>

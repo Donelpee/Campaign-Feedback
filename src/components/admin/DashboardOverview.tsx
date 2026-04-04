@@ -60,6 +60,7 @@ import {
 import type { Campaign, CampaignQuestion, Company } from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import { getOtherAnswerText } from "@/lib/campaign-answer-utils";
 
 interface LinkWithRelations {
   id: string;
@@ -618,6 +619,12 @@ export function DashboardOverview() {
         if (typeof value !== "string") return;
         const trimmed = value.trim();
         if (trimmed) collectedText.push(trimmed);
+      });
+      campaignQuestions.forEach((question) => {
+        const otherDetails = getOtherAnswerText(answerMap, question.id).trim();
+        if (otherDetails) {
+          collectedText.push(otherDetails);
+        }
       });
     });
 

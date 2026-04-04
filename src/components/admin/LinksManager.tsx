@@ -57,6 +57,7 @@ import {
   Send,
   RefreshCw,
   Building2,
+  Eye,
 } from "lucide-react";
 import type {
   Company,
@@ -754,6 +755,19 @@ export function LinksManager() {
                                 <Mail className="h-4 w-4" />
                               </Button>
                             )}
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                window.open(
+                                  `/feedback/${link.unique_code}?preview=1`,
+                                  "_blank",
+                                )
+                              }
+                              title="Preview form"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"

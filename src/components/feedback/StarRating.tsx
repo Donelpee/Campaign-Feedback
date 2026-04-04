@@ -7,6 +7,7 @@ interface StarRatingProps {
   max?: number;
   label: string;
   description?: string;
+  disabled?: boolean;
 }
 
 export function StarRating({
@@ -15,6 +16,7 @@ export function StarRating({
   max = 5,
   label,
   description,
+  disabled = false,
 }: StarRatingProps) {
   return (
     <div className="space-y-3">
@@ -30,8 +32,10 @@ export function StarRating({
             key={star}
             type="button"
             onClick={() => onChange(star)}
+            disabled={disabled}
             className={cn(
               "p-1 transition-all hover:scale-110 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded",
+              disabled && "cursor-not-allowed opacity-70 hover:scale-100",
               star <= value
                 ? "text-warning"
                 : "text-muted-foreground/30 hover:text-muted-foreground/50",

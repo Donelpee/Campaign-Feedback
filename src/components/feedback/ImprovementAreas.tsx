@@ -6,6 +6,7 @@ interface ImprovementAreasProps {
   onChange: (value: string[]) => void;
   label: string;
   description?: string;
+  disabled?: boolean;
 }
 
 const areas = [
@@ -24,6 +25,7 @@ export function ImprovementAreas({
   onChange,
   label,
   description,
+  disabled = false,
 }: ImprovementAreasProps) {
   const handleToggle = (areaId: string) => {
     if (value.includes(areaId)) {
@@ -47,6 +49,7 @@ export function ImprovementAreas({
             key={area.id}
             className={cn(
               "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+              disabled && "cursor-not-allowed opacity-80",
               value.includes(area.id)
                 ? "border-primary bg-primary/5"
                 : "border-border hover:border-muted-foreground/50 hover:bg-muted",
@@ -54,6 +57,7 @@ export function ImprovementAreas({
           >
             <Checkbox
               checked={value.includes(area.id)}
+              disabled={disabled}
               onCheckedChange={() => handleToggle(area.id)}
             />
             <span className="text-sm">{area.label}</span>
