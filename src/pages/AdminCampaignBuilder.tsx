@@ -15,7 +15,7 @@ import type {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { DEFAULT_CREATION_MODE_KEY, readLocalCampaigns, writeLocalCampaigns } from "@/lib/campaign-builder";
 import type { Campaign } from "@/lib/supabase-types";
-import { serializeCampaignSurvey } from "@/lib/campaign-survey";
+import { normalizeCampaignSurvey, serializeCampaignSurvey } from "@/lib/campaign-survey";
 
 interface CampaignBuilderLocationState {
   draft?: WizardData | null;
