@@ -2,6 +2,8 @@
 // These extend the auto-generated types for better type safety
 
 export type AppRole = string;
+export type ProfileAccountType = "individual" | "organization";
+export type RespondentNamePreference = "individual_name" | "organization_name";
 export type AdminPermission =
   | "overview"
   | "companies"
@@ -223,6 +225,9 @@ export interface Profile {
   email: string;
   full_name: string | null;
   username: string | null;
+  organization_name?: string | null;
+  account_type?: ProfileAccountType;
+  respondent_name_preference?: RespondentNamePreference;
   created_at: string;
   updated_at: string;
 }

@@ -7,7 +7,11 @@ import {
 } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import type { AppRole } from "@/lib/supabase-types";
+import type {
+  AppRole,
+  ProfileAccountType,
+  RespondentNamePreference,
+} from "@/lib/supabase-types";
 
 export const AUTH_BYPASS_MODE = false;
 
@@ -28,6 +32,11 @@ interface AuthContextType {
     email: string,
     password: string,
     fullName: string,
+    profileOptions?: {
+      accountType: ProfileAccountType;
+      respondentNamePreference: RespondentNamePreference;
+      organizationName?: string;
+    },
   ) => Promise<{ error: Error | null }>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
@@ -138,7 +147,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
-  const signUp = async (email: string, password: string, fullName: string) => {
+  const signUp = async (
+    email: string,
+    password: string,
+    fullName: string,
+    profileOptions?: {
+      accountType: ProfileAccountType;
+      respondentNamePreference: RespondentNamePreference;
+      organizationName?: string;
+    },
+  ) => {
     if (AUTH_BYPASS_MODE) {
       setUser(MOCK_ADMIN_USER);
       setIsAdmin(true);
@@ -155,6 +173,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emailRedirectTo: redirectUrl,
         data: {
           full_name: fullName,
+          account_type: profileOptions?.accountType || "organization",
+          respondent_name_preference:
+            profileOptions?.accountType === "individual"
+              ? "individual_name"
+              : profileOptions?.respondentNamePreference || "organization_name",
+          organization_name:
+            profileOptions?.accountType === "organization"
+              ? profileOptions?.organizationName?.trim() || fullName
+              : "",
         },
       },
     });

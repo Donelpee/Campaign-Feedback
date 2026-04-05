@@ -14,6 +14,10 @@ declare const Deno: {
 interface ConsumePayload {
   token: string;
   username?: string;
+  fullName?: string;
+  accountType?: string;
+  respondentNamePreference?: string;
+  organizationName?: string;
   password: string;
 }
 
@@ -56,6 +60,10 @@ async function hashToken(token: string): Promise<string> {
 async function createAuthUser(params: {
   email: string;
   username: string;
+  fullName: string;
+  accountType: string;
+  respondentNamePreference: string;
+  organizationName: string | null;
   password: string;
 }): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -74,8 +82,11 @@ async function createAuthUser(params: {
       password: params.password,
       email_confirm: true,
       user_metadata: {
-        full_name: params.username,
+        full_name: params.fullName,
         username: params.username,
+        account_type: params.accountType,
+        respondent_name_preference: params.respondentNamePreference,
+        organization_name: params.organizationName,
       },
     }),
   });
@@ -130,6 +141,31 @@ Deno.serve(async (request) => {
     const username = String(payload?.username || invite.username || "")
       .trim();
     if (!username) return jsonResponse(400, { error: "Username is required." });
+    const fullName = String(payload?.fullName || "").trim();
+    if (fullName.length < 2) {
+      return jsonResponse(400, { error: "Full name must be at least 2 characters." });
+    }
+    const accountType =
+      String(payload?.accountType || "organization").trim().toLowerCase() === "individual"
+        ? "individual"
+        : "organization";
+    const respondentNamePreference =
+      accountType === "individual"
+        ? "individual_name"
+        : String(payload?.respondentNamePreference || "organization_name")
+            .trim()
+            .toLowerCase() === "individual_name"
+          ? "individual_name"
+          : "organization_name";
+    const organizationName =
+      accountType === "organization"
+        ? String(payload?.organizationName || "").trim()
+        : "";
+    if (accountType === "organization" && organizationName.length < 2) {
+      return jsonResponse(400, {
+        error: "Organization name must be at least 2 characters.",
+      });
+    }
 
     const existingUsername = await postgrest<Array<{ user_id: string }>>(
       `profiles?username=ilike.${escapePostgrestValue(username)}&select=user_id&limit=1`,
@@ -142,6 +178,10 @@ Deno.serve(async (request) => {
     const userId = await createAuthUser({
       email: invite.invite_email,
       username,
+      fullName,
+      accountType,
+      respondentNamePreference,
+      organizationName: accountType === "organization" ? organizationName : null,
       password,
     });
 
@@ -150,7 +190,14 @@ Deno.serve(async (request) => {
       {
         method: "PATCH",
         headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ tenant_id: invite.tenant_id }),
+        body: JSON.stringify({
+          tenant_id: invite.tenant_id,
+          full_name: fullName,
+          username,
+          account_type: accountType,
+          respondent_name_preference: respondentNamePreference,
+          organization_name: accountType === "organization" ? organizationName : null,
+        }),
       },
     );
 

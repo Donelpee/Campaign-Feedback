@@ -11,11 +11,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Save, KeyRound, Bell, Palette } from "lucide-react";
+import type {
+  ProfileAccountType,
+  RespondentNamePreference,
+} from "@/lib/supabase-types";
 
 type CreationMode =
   | "guided_buddy";
@@ -29,6 +40,12 @@ export function SettingsManager() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [username, setUsername] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [organizationName, setOrganizationName] = useState("");
+  const [accountType, setAccountType] =
+    useState<ProfileAccountType>("organization");
+  const [respondentNamePreference, setRespondentNamePreference] =
+    useState<RespondentNamePreference>("organization_name");
   const [inAppCampaignNotifications, setInAppCampaignNotifications] =
     useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
@@ -94,7 +111,7 @@ export function SettingsManager() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("username")
+          .select("username, full_name, organization_name, account_type, respondent_name_preference")
           .eq("user_id", user.id)
           .maybeSingle(),
       ]);
@@ -102,6 +119,15 @@ export function SettingsManager() {
       if (settingsRes.error) throw settingsRes.error;
       if (profileRes.error) throw profileRes.error;
       setUsername(profileRes.data?.username || "");
+      setFullName(profileRes.data?.full_name || "");
+      setOrganizationName(profileRes.data?.organization_name || "");
+      setAccountType(
+        (profileRes.data?.account_type as ProfileAccountType) || "organization",
+      );
+      setRespondentNamePreference(
+        (profileRes.data?.respondent_name_preference as RespondentNamePreference) ||
+          "organization_name",
+      );
 
       if (settingsRes.data) {
         setInAppCampaignNotifications(
@@ -138,6 +164,29 @@ export function SettingsManager() {
   const saveSettings = async () => {
     if (!user?.id) return;
 
+    const normalizedFullName = fullName.trim();
+    const normalizedOrganizationName = organizationName.trim();
+    const normalizedPreference =
+      accountType === "individual" ? "individual_name" : respondentNamePreference;
+
+    if (normalizedFullName.length < 2) {
+      toast({
+        title: "Full name required",
+        description: "Please provide the name to use in your profile and thank-you note.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (accountType === "organization" && normalizedOrganizationName.length < 2) {
+      toast({
+        title: "Organization name required",
+        description: "Please provide the profile organization name you want responders to see.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSavingSettings(true);
     try {
       const { error } = await supabase.from("user_settings").upsert(
@@ -158,13 +207,29 @@ export function SettingsManager() {
       if (error) throw error;
 
       const normalizedUsername = username.trim();
+      const profileUpdates: {
+        full_name: string | null;
+        organization_name: string | null;
+        account_type: ProfileAccountType;
+        respondent_name_preference: RespondentNamePreference;
+        username?: string;
+      } = {
+        full_name: normalizedFullName,
+        organization_name:
+          accountType === "organization" ? normalizedOrganizationName : null,
+        account_type: accountType,
+        respondent_name_preference: normalizedPreference,
+      };
+
       if (normalizedUsername.length > 0) {
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .update({ username: normalizedUsername })
-          .eq("user_id", user.id);
-        if (profileError) throw profileError;
+        profileUpdates.username = normalizedUsername;
       }
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update(profileUpdates)
+        .eq("user_id", user.id);
+      if (profileError) throw profileError;
 
       toast({ title: "Settings saved" });
     } catch (error) {
@@ -245,6 +310,15 @@ export function SettingsManager() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
+            <Label>Full Name</Label>
+            <Input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Jane Doe"
+              disabled={isLoadingSettings || isSavingSettings}
+            />
+          </div>
+          <div className="space-y-2">
             <Label>Email</Label>
             <Input value={user?.email || ""} disabled />
           </div>
@@ -256,6 +330,72 @@ export function SettingsManager() {
               placeholder="your.username"
               disabled={isLoadingSettings || isSavingSettings}
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Account Type</Label>
+            <Select
+              value={accountType}
+              onValueChange={(value: ProfileAccountType) => {
+                setAccountType(value);
+                if (value === "individual") {
+                  setRespondentNamePreference("individual_name");
+                }
+              }}
+              disabled={isLoadingSettings || isSavingSettings}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose account type" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="organization">Organization</SelectItem>
+                <SelectItem value="individual">Individual</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Organization profiles can show either the linked company name or your personal name
+              in the responder thank-you note.
+            </p>
+          </div>
+          {accountType === "organization" && (
+            <div className="space-y-2">
+              <Label>Organization Name</Label>
+              <Input
+                value={organizationName}
+                onChange={(e) => setOrganizationName(e.target.value)}
+                placeholder="Acme Advisory"
+                disabled={isLoadingSettings || isSavingSettings}
+              />
+              <p className="text-xs text-muted-foreground">
+                This is a profile/display name only. It does not rename your client companies or campaigns.
+              </p>
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label>Thank-You Note Signoff</Label>
+            <Select
+              value={
+                accountType === "individual"
+                  ? "individual_name"
+                  : respondentNamePreference
+              }
+              onValueChange={(value: RespondentNamePreference) =>
+                setRespondentNamePreference(value)
+              }
+              disabled={isLoadingSettings || isSavingSettings || accountType === "individual"}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose signoff style" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="organization_name">Organization name</SelectItem>
+                <SelectItem value="individual_name">Individual name</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {accountType === "individual"
+                ? "Individual accounts always use your personal profile name."
+                : "Organization name uses the organization name saved in your profile on the published feedback form."}
+            </p>
           </div>
 
           <Separator />

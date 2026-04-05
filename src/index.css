@@ -281,7 +281,7 @@
   }
 
   .warm-question-card {
-    @apply border border-amber-200/70;
+    @apply border-2 border-amber-300/85;
     background: linear-gradient(180deg, rgba(255, 246, 246, 0.95) 0%, rgba(246, 232, 235, 0.98) 100%);
     box-shadow:
       0 10px 24px rgba(145, 83, 98, 0.14),
@@ -292,6 +292,22 @@
     box-shadow:
       0 14px 28px rgba(145, 83, 98, 0.2),
       inset 0 0 0 1px rgba(226, 176, 186, 0.95);
+  }
+
+  .feedback-section-card {
+    @apply rounded-2xl border-2 border-rose-300/90;
+    background: linear-gradient(180deg, rgba(255, 241, 242, 0.98) 0%, rgba(247, 223, 228, 0.98) 100%);
+    box-shadow:
+      0 14px 30px rgba(145, 83, 98, 0.18),
+      inset 0 0 0 1px rgba(241, 184, 196, 0.92);
+  }
+
+  .feedback-section-title {
+    @apply text-xl font-bold tracking-tight text-foreground;
+  }
+
+  .feedback-section-description {
+    @apply text-sm font-medium leading-6 text-slate-700;
   }
 
   .admin-theme {

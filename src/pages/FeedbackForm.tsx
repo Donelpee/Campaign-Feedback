@@ -33,6 +33,7 @@ import {
   AlertCircle,
   Loader2,
   Building2,
+  Clock3,
   ArrowUp,
   ArrowDown,
   ArrowLeft,
@@ -83,6 +84,38 @@ interface LinkData {
   is_active: boolean;
   start_date: string;
   end_date: string;
+  thank_you_display_name: string | null;
+  thank_you_display_preference: string | null;
+}
+
+interface CountdownParts {
+  days: number;
+  hours: number;
+  minutes: number;
+  isExpired: boolean;
+}
+
+function getCampaignExpiryDate(endDate: string): Date {
+  const expiry = new Date(endDate);
+  expiry.setHours(23, 59, 59, 999);
+  return expiry;
+}
+
+function getCountdownParts(endDate: string | null | undefined, currentTime: number): CountdownParts {
+  if (!endDate) {
+    return { days: 0, hours: 0, minutes: 0, isExpired: false };
+  }
+
+  const expiryMs = getCampaignExpiryDate(endDate).getTime();
+  const remainingMs = Math.max(0, expiryMs - currentTime);
+  const totalMinutes = Math.floor(remainingMs / (1000 * 60));
+
+  return {
+    days: Math.floor(totalMinutes / (60 * 24)),
+    hours: Math.floor((totalMinutes % (60 * 24)) / 60),
+    minutes: totalMinutes % 60,
+    isExpired: remainingMs <= 0,
+  };
 }
 
 export default function FeedbackForm() {
@@ -97,6 +130,7 @@ export default function FeedbackForm() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [sectionHistory, setSectionHistory] = useState<string[]>([]);
   const [pendingTargetQuestionId, setPendingTargetQuestionId] = useState<string | null>(null);
@@ -212,6 +246,8 @@ export default function FeedbackForm() {
         campaign_questions: CampaignQuestion[] | null;
         start_date: string;
         end_date: string;
+        thank_you_display_name: string | null;
+        thank_you_display_preference: string | null;
       };
 
       if (!isPreviewMode && !linkInfo.is_active) {
@@ -268,6 +304,17 @@ export default function FeedbackForm() {
       incrementAccessCount();
     }
   }, [code, incrementAccessCount, isPreviewMode, loadLinkData]);
+
+  useEffect(() => {
+    if (isPreviewMode || !linkData?.end_date) return;
+
+    setCurrentTime(Date.now());
+    const interval = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [isPreviewMode, linkData?.end_date]);
 
   const hasDynamicQuestions = (linkData?.campaign_questions?.length || 0) > 0;
 
@@ -350,6 +397,21 @@ export default function FeedbackForm() {
   const displayedQuestionOrder = useMemo(
     () => displayedSections.flatMap((section) => section.questions),
     [displayedSections],
+  );
+  const countdownParts = useMemo(
+    () => getCountdownParts(linkData?.end_date, currentTime),
+    [currentTime, linkData?.end_date],
+  );
+  const thankYouDisplayName = useMemo(() => {
+    const candidate = linkData?.thank_you_display_name?.trim();
+    return candidate && candidate.length > 0 ? candidate : linkData?.company_name || "us";
+  }, [linkData?.company_name, linkData?.thank_you_display_name]);
+  const thankYouMessage = useMemo(
+    () =>
+      thankYouDisplayName === "us"
+        ? "We appreciate your time and valuable input."
+        : `${thankYouDisplayName} appreciates your time and valuable input.`,
+    [thankYouDisplayName],
   );
 
   const getNextRouteDestination = useCallback(() => {
@@ -671,8 +733,7 @@ export default function FeedbackForm() {
                 Thank You!
               </h2>
               <p className="mt-2 text-muted-foreground">
-                Your feedback has been submitted successfully. We appreciate
-                your time and valuable input.
+                Your feedback has been submitted successfully. {thankYouMessage}
               </p>
             </div>
           </CardContent>
@@ -853,7 +914,7 @@ export default function FeedbackForm() {
       return (
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-foreground">{question.question}</h3>
+            <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
             <p className="text-sm text-muted-foreground">{commonDescription}</p>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -898,7 +959,7 @@ export default function FeedbackForm() {
       return (
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-foreground">{question.question}</h3>
+            <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
             <p className="text-sm text-muted-foreground">{commonDescription}</p>
           </div>
           <Select
@@ -951,7 +1012,7 @@ export default function FeedbackForm() {
       return (
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-foreground">{question.question}</h3>
+            <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
             <p className="text-sm text-muted-foreground">{commonDescription}</p>
           </div>
           <RadioGroup
@@ -1035,7 +1096,7 @@ export default function FeedbackForm() {
       return (
         <div className="space-y-4">
           <div>
-            <h3 className="font-medium text-foreground">{question.question}</h3>
+            <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
             <p className="text-sm text-muted-foreground">{commonDescription}</p>
           </div>
           <div className="overflow-x-auto rounded-lg border">
@@ -1096,7 +1157,7 @@ export default function FeedbackForm() {
     if (question.type === "date") {
       return (
         <div className="space-y-2">
-          <h3 className="font-medium text-foreground">{question.question}</h3>
+          <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <Input
             type="date"
@@ -1123,7 +1184,7 @@ export default function FeedbackForm() {
 
       return (
         <div className="space-y-3">
-          <h3 className="font-medium text-foreground">{question.question}</h3>
+          <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <p className="text-sm text-muted-foreground">{uploadSummary}</p>
           <Input
@@ -1252,7 +1313,7 @@ export default function FeedbackForm() {
     if (question.type === "textbox" || question.type === "text") {
       return (
         <div className="space-y-2">
-          <h3 className="font-medium text-foreground">{question.question}</h3>
+          <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <Input
             value={String(dynamicAnswers[question.id] ?? "")}
@@ -1272,7 +1333,7 @@ export default function FeedbackForm() {
     if (question.type === "textarea") {
       return (
         <div className="space-y-2">
-          <h3 className="font-medium text-foreground">{question.question}</h3>
+          <h3 className="text-base font-semibold text-foreground">{question.question}</h3>
           <p className="text-sm text-muted-foreground">{commonDescription}</p>
           <Textarea
             value={String(dynamicAnswers[question.id] ?? "")}
@@ -1347,13 +1408,28 @@ export default function FeedbackForm() {
             </div>
 
             <div className="grid gap-3 rounded-2xl border border-border/70 bg-background/75 p-4 md:min-w-[240px]">
-              <div>
-                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
-                  Mode
-                </p>
-                <p className="mt-1 text-sm font-semibold text-foreground">
-                  {isPreviewMode ? "Preview only" : "Live form"}
-                </p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
+                    Mode
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">
+                    {isPreviewMode ? "Preview only" : "Live form"}
+                  </p>
+                </div>
+                {!isPreviewMode && (
+                  <div className="min-w-[136px] rounded-xl border-2 border-amber-300/80 bg-background/85 px-3 py-2 text-right shadow-sm">
+                    <div className="flex items-center justify-end gap-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <Clock3 className="h-3.5 w-3.5" />
+                      <span>Expires In</span>
+                    </div>
+                    <p className="mt-1 text-sm font-bold text-foreground">
+                      {countdownParts.isExpired
+                        ? "Expired"
+                        : `${countdownParts.days}d ${countdownParts.hours}h ${countdownParts.minutes}m`}
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl bg-muted/40 p-3">
@@ -1411,15 +1487,15 @@ export default function FeedbackForm() {
                 ) : (
                   displayedSections.map((section, sectionIndex) => (
                     <div key={section.id} className="space-y-4">
-                      <Card className="warm-question-card border-border/70 shadow-sm">
+                      <Card className="feedback-section-card">
                         <CardHeader>
-                          <CardTitle className="flex items-center gap-2 text-lg">
+                          <CardTitle className="feedback-section-title flex items-center gap-3">
                             <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                               {sectionIndex + 1}
                             </span>
                             {section.title}
                           </CardTitle>
-                          <CardDescription>
+                          <CardDescription className="feedback-section-description">
                             {section.description || "Section preview"}
                           </CardDescription>
                         </CardHeader>
@@ -1439,7 +1515,7 @@ export default function FeedbackForm() {
                             style={{ scrollMarginTop: "1rem" }}
                           >
                             <CardHeader>
-                              <CardTitle className="text-lg">
+                              <CardTitle className="text-lg font-semibold">
                                 Question {questionNumber}
                                 {question.required && (
                                   <span className="ml-1 text-destructive">*</span>
@@ -1458,11 +1534,13 @@ export default function FeedbackForm() {
                 )
               ) : (
                 <>
-                  {activeSection && visibleSections.length > 1 && (
-                    <Card className="warm-question-card border-border/70 shadow-sm">
+                  {activeSection && (
+                    <Card className="feedback-section-card">
                       <CardHeader>
-                        <CardTitle className="text-lg">{activeSection.title}</CardTitle>
-                        <CardDescription>
+                        <CardTitle className="feedback-section-title">
+                          {activeSection.title}
+                        </CardTitle>
+                        <CardDescription className="feedback-section-description">
                           Section {currentSectionIndex + 1} of {visibleSections.length}
                           {activeSection.description ? ` - ${activeSection.description}` : ""}
                         </CardDescription>
@@ -1482,7 +1560,7 @@ export default function FeedbackForm() {
                       style={{ scrollMarginTop: "1rem" }}
                     >
                       <CardHeader>
-                        <CardTitle className="text-lg">
+                        <CardTitle className="text-lg font-semibold">
                           Question {index + 1}
                           {question.required && (
                             <span className="ml-1 text-destructive">*</span>
@@ -1511,7 +1589,7 @@ export default function FeedbackForm() {
               <>
                 <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Overall Experience</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Overall Experience</CardTitle>
                     <CardDescription>
                       How would you rate your overall satisfaction with our services?
                     </CardDescription>
@@ -1534,7 +1612,7 @@ export default function FeedbackForm() {
 
                 <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Service Quality</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Service Quality</CardTitle>
                     <CardDescription>
                       How would you rate the quality of our service or product?
                     </CardDescription>
@@ -1553,7 +1631,7 @@ export default function FeedbackForm() {
 
                 <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Recommendation</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Recommendation</CardTitle>
                     <CardDescription>
                       How likely are you to recommend our services to a colleague?
                     </CardDescription>
@@ -1575,7 +1653,7 @@ export default function FeedbackForm() {
 
                 <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Areas for Improvement</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Areas for Improvement</CardTitle>
                     <CardDescription>
                       Select any areas where you think we could improve.
                     </CardDescription>
@@ -1594,7 +1672,7 @@ export default function FeedbackForm() {
 
                 <Card className="warm-question-card border-border/70 shadow-sm">
                   <CardHeader>
-                    <CardTitle className="text-lg">Additional Comments</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Additional Comments</CardTitle>
                     <CardDescription>
                       Share any additional thoughts or suggestions.
                     </CardDescription>

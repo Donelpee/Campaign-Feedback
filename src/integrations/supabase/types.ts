@@ -343,28 +343,37 @@ export type Database = {
       };
       profiles: {
         Row: {
+          account_type: string;
           created_at: string;
           email: string;
           full_name: string | null;
           id: string;
+          organization_name: string | null;
+          respondent_name_preference: string;
           updated_at: string;
           user_id: string;
           username: string | null;
         };
         Insert: {
+          account_type?: string;
           created_at?: string;
           email: string;
           full_name?: string | null;
           id?: string;
+          organization_name?: string | null;
+          respondent_name_preference?: string;
           updated_at?: string;
           user_id: string;
           username?: string | null;
         };
         Update: {
+          account_type?: string;
           created_at?: string;
           email?: string;
           full_name?: string | null;
           id?: string;
+          organization_name?: string | null;
+          respondent_name_preference?: string;
           updated_at?: string;
           user_id?: string;
           username?: string | null;

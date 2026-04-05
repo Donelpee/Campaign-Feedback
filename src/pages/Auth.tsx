@@ -15,15 +15,60 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import type {
+  ProfileAccountType,
+  RespondentNamePreference,
+} from "@/lib/supabase-types";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z
   .string()
   .min(6, "Password must be at least 6 characters");
 const nameSchema = z.string().min(2, "Name must be at least 2 characters");
+
+const accountTypeOptions: Array<{
+  value: ProfileAccountType;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "organization",
+    label: "Organization",
+    description: "Use your company context across campaigns and thank-you messages.",
+  },
+  {
+    value: "individual",
+    label: "Individual",
+    description: "Use your personal identity as the default responder-facing signoff.",
+  },
+];
+
+const respondentPreferenceOptions: Array<{
+  value: RespondentNamePreference;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "organization_name",
+    label: "Organization name",
+    description: "Published thank-you notes will use the organization name saved in your profile.",
+  },
+  {
+    value: "individual_name",
+    label: "Individual name",
+    description: "Published thank-you notes will use your personal profile name.",
+  },
+];
 
 export default function Auth() {
   const { toast } = useToast();
@@ -43,11 +88,22 @@ export default function Auth() {
   const [signupEmail, setSignupEmail] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [signupName, setSignupName] = useState("");
+  const [signupOrganizationName, setSignupOrganizationName] = useState("");
+  const [signupAccountType, setSignupAccountType] =
+    useState<ProfileAccountType>("organization");
+  const [signupRespondentNamePreference, setSignupRespondentNamePreference] =
+    useState<RespondentNamePreference>("organization_name");
   const [magicLinkCooldown, setMagicLinkCooldown] = useState(0);
   const [resetCooldown, setResetCooldown] = useState(0);
   const [onboardingToken, setOnboardingToken] = useState("");
   const [onboardingUsername, setOnboardingUsername] = useState("");
+  const [onboardingFullName, setOnboardingFullName] = useState("");
+  const [onboardingOrganizationName, setOnboardingOrganizationName] = useState("");
   const [onboardingPassword, setOnboardingPassword] = useState("");
+  const [onboardingAccountType, setOnboardingAccountType] =
+    useState<ProfileAccountType>("organization");
+  const [onboardingRespondentNamePreference, setOnboardingRespondentNamePreference] =
+    useState<RespondentNamePreference>("organization_name");
 
   const supabaseHost = (() => {
     try {
@@ -176,6 +232,9 @@ export default function Auth() {
       emailSchema.parse(signupEmail);
       passwordSchema.parse(signupPassword);
       nameSchema.parse(signupName);
+      if (signupAccountType === "organization") {
+        nameSchema.parse(signupOrganizationName);
+      }
     } catch (err) {
       if (err instanceof z.ZodError) {
         toast({
@@ -188,7 +247,15 @@ export default function Auth() {
     }
 
     setIsLoading(true);
-    const { error } = await signUp(signupEmail, signupPassword, signupName);
+    const { error } = await signUp(signupEmail, signupPassword, signupName, {
+      accountType: signupAccountType,
+      respondentNamePreference:
+        signupAccountType === "individual"
+          ? "individual_name"
+          : signupRespondentNamePreference,
+      organizationName:
+        signupAccountType === "organization" ? signupOrganizationName : undefined,
+    });
 
     if (error) {
       if (error.message.includes("User already registered")) {
@@ -213,6 +280,9 @@ export default function Auth() {
       setSignupEmail("");
       setSignupPassword("");
       setSignupName("");
+      setSignupOrganizationName("");
+      setSignupAccountType("organization");
+      setSignupRespondentNamePreference("organization_name");
     }
 
     setIsLoading(false);
@@ -323,6 +393,29 @@ export default function Auth() {
   const handleOnboardingComplete = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!onboardingToken) return;
+    if (onboardingUsername.trim().length < 2) {
+      toast({
+        variant: "destructive",
+        title: "Invalid username",
+        description: "Username must be at least 2 characters.",
+      });
+      return;
+    }
+    try {
+      nameSchema.parse(onboardingFullName);
+      if (onboardingAccountType === "organization") {
+        nameSchema.parse(onboardingOrganizationName);
+      }
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        toast({
+          variant: "destructive",
+          title: "Invalid name",
+          description: err.errors[0].message,
+        });
+        return;
+      }
+    }
     if (onboardingPassword.trim().length < 6) {
       toast({
         variant: "destructive",
@@ -336,6 +429,16 @@ export default function Auth() {
       body: {
         token: onboardingToken,
         username: onboardingUsername,
+        fullName: onboardingFullName,
+        accountType: onboardingAccountType,
+        respondentNamePreference:
+          onboardingAccountType === "individual"
+            ? "individual_name"
+            : onboardingRespondentNamePreference,
+        organizationName:
+          onboardingAccountType === "organization"
+            ? onboardingOrganizationName
+            : undefined,
         password: onboardingPassword,
       },
     });
@@ -353,6 +456,10 @@ export default function Auth() {
       description: "Your account is ready. Please sign in.",
     });
     setOnboardingToken("");
+    setOnboardingFullName("");
+    setOnboardingOrganizationName("");
+    setOnboardingAccountType("organization");
+    setOnboardingRespondentNamePreference("organization_name");
     window.history.replaceState({}, "", "/auth");
   };
 
@@ -415,6 +522,18 @@ export default function Auth() {
               {onboardingToken ? (
                 <form onSubmit={handleOnboardingComplete} className="space-y-4">
                   <div className="space-y-2">
+                    <Label htmlFor="onboard-full-name">Full Name</Label>
+                    <Input
+                      id="onboard-full-name"
+                      type="text"
+                      placeholder="Jane Doe"
+                      value={onboardingFullName}
+                      onChange={(e) => setOnboardingFullName(e.target.value)}
+                      required
+                      disabled={isLoading}
+                    />
+                  </div>
+                  <div className="space-y-2">
                     <Label htmlFor="onboard-username">Username</Label>
                     <Input
                       id="onboard-username"
@@ -425,6 +544,86 @@ export default function Auth() {
                       required
                       disabled={isLoading}
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="onboard-account-type">Account Type</Label>
+                    <Select
+                      value={onboardingAccountType}
+                      onValueChange={(value: ProfileAccountType) => {
+                        setOnboardingAccountType(value);
+                        if (value === "individual") {
+                          setOnboardingRespondentNamePreference("individual_name");
+                        }
+                      }}
+                      disabled={isLoading}
+                    >
+                      <SelectTrigger id="onboard-account-type">
+                        <SelectValue placeholder="Choose account type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {accountTypeOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {
+                        accountTypeOptions.find(
+                          (option) => option.value === onboardingAccountType,
+                        )?.description
+                      }
+                    </p>
+                  </div>
+                  {onboardingAccountType === "organization" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="onboard-organization-name">Organization Name</Label>
+                      <Input
+                        id="onboard-organization-name"
+                        type="text"
+                        placeholder="Acme Advisory"
+                        value={onboardingOrganizationName}
+                        onChange={(e) => setOnboardingOrganizationName(e.target.value)}
+                        required
+                        disabled={isLoading}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        This is a profile display name only and does not change your client company records.
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="onboard-thank-you-mode">
+                      Thank-you note signoff
+                    </Label>
+                    <Select
+                      value={
+                        onboardingAccountType === "individual"
+                          ? "individual_name"
+                          : onboardingRespondentNamePreference
+                      }
+                      onValueChange={(value: RespondentNamePreference) =>
+                        setOnboardingRespondentNamePreference(value)
+                      }
+                      disabled={isLoading || onboardingAccountType === "individual"}
+                    >
+                      <SelectTrigger id="onboard-thank-you-mode">
+                        <SelectValue placeholder="Choose thank-you signoff" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {respondentPreferenceOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {onboardingAccountType === "individual"
+                        ? "Individual accounts always use your personal profile name."
+                        : "Organization name uses the organization name saved in your profile."}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="onboard-password">Set Password</Label>
@@ -565,6 +764,86 @@ export default function Auth() {
                         required
                         disabled={isLoading}
                       />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-account-type">Account Type</Label>
+                      <Select
+                        value={signupAccountType}
+                        onValueChange={(value: ProfileAccountType) => {
+                          setSignupAccountType(value);
+                          if (value === "individual") {
+                            setSignupRespondentNamePreference("individual_name");
+                          }
+                        }}
+                        disabled={isLoading}
+                      >
+                        <SelectTrigger id="signup-account-type">
+                          <SelectValue placeholder="Choose account type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {accountTypeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {
+                          accountTypeOptions.find(
+                            (option) => option.value === signupAccountType,
+                          )?.description
+                        }
+                      </p>
+                    </div>
+                    {signupAccountType === "organization" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="signup-organization-name">Organization Name</Label>
+                        <Input
+                          id="signup-organization-name"
+                          type="text"
+                          placeholder="Acme Advisory"
+                          value={signupOrganizationName}
+                          onChange={(e) => setSignupOrganizationName(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          This is a profile display name only and does not change your client company records.
+                        </p>
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      <Label htmlFor="signup-thank-you-mode">
+                        Thank-you note signoff
+                      </Label>
+                      <Select
+                        value={
+                          signupAccountType === "individual"
+                            ? "individual_name"
+                            : signupRespondentNamePreference
+                        }
+                        onValueChange={(value: RespondentNamePreference) =>
+                          setSignupRespondentNamePreference(value)
+                        }
+                        disabled={isLoading || signupAccountType === "individual"}
+                      >
+                        <SelectTrigger id="signup-thank-you-mode">
+                          <SelectValue placeholder="Choose thank-you signoff" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {respondentPreferenceOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {signupAccountType === "individual"
+                          ? "Individual accounts always use your personal profile name."
+                          : "Organization name uses the organization name saved in your profile."}
+                      </p>
                     </div>
 
                     <Button type="submit" className="w-full" disabled={isLoading}>
