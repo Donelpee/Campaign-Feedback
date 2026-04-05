@@ -198,24 +198,13 @@ export function LinksManager() {
           link.is_active &&
           !isCampaignActiveNow(link.campaign.start_date, link.campaign.end_date),
       );
-      const shouldReactivateLinks = mappedLinks.filter(
-        (link) =>
-          !link.is_active &&
-          isCampaignActiveNow(link.campaign.start_date, link.campaign.end_date),
-      );
-
-      const pendingStatusUpdates = [
-        ...staleActiveLinks.map((link) => ({ id: link.id, is_active: false })),
-        ...shouldReactivateLinks.map((link) => ({ id: link.id, is_active: true })),
-      ];
-
-      if (pendingStatusUpdates.length > 0) {
+      if (staleActiveLinks.length > 0) {
         await Promise.all(
-          pendingStatusUpdates.map((update) =>
+          staleActiveLinks.map((link) =>
             supabase
               .from("company_campaign_links")
-              .update({ is_active: update.is_active })
-              .eq("id", update.id),
+              .update({ is_active: false })
+              .eq("id", link.id),
           ),
         );
       }
@@ -224,9 +213,7 @@ export function LinksManager() {
         mappedLinks.map((link) =>
           staleActiveLinks.some((stale) => stale.id === link.id)
             ? { ...link, is_active: false }
-            : shouldReactivateLinks.some((activeLink) => activeLink.id === link.id)
-              ? { ...link, is_active: true }
-              : link,
+            : link,
         ),
       );
       setCompanies((companiesRes.data || []) as Company[]);

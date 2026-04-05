@@ -128,6 +128,15 @@ export default function AdminCampaignBuilder() {
     }
 
     try {
+      const serializedSurvey = JSON.parse(
+        JSON.stringify(
+          serializeCampaignSurvey({
+            sections: data.sections,
+            questions: data.questions,
+          }),
+        ),
+      );
+
       if (data.campaignId) {
         const { data: duplicateByName, error: duplicateByNameError } =
           await supabase
@@ -164,9 +173,16 @@ export default function AdminCampaignBuilder() {
                 .single();
             if (existingCampaignError) throw existingCampaignError;
 
+            const existingSerializedSurvey = JSON.parse(
+              JSON.stringify(
+                serializeCampaignSurvey(
+                  normalizeCampaignSurvey(existingCampaign.questions),
+                ),
+              ),
+            );
             const sameQuestions =
-              JSON.stringify(existingCampaign.questions || []) ===
-              JSON.stringify(data.questions || []);
+              JSON.stringify(existingSerializedSurvey) ===
+              JSON.stringify(serializedSurvey);
             const sameCampaignType =
               (existingCampaign.campaign_type || "feedback") === data.campaignType;
             const sameName = (existingCampaign.name || "").trim() === trimmedName;
@@ -195,14 +211,7 @@ export default function AdminCampaignBuilder() {
             name: trimmedName,
             description: data.description.trim() || null,
             campaign_type: data.campaignType,
-            questions: JSON.parse(
-              JSON.stringify(
-                serializeCampaignSurvey({
-                  sections: data.sections,
-                  questions: data.questions,
-                }),
-              ),
-            ),
+            questions: serializedSurvey,
             start_date: data.startDate,
             end_date: data.endDate,
           })
@@ -232,14 +241,7 @@ export default function AdminCampaignBuilder() {
           name: trimmedName,
           description: data.description.trim() || null,
           campaign_type: data.campaignType,
-          questions: JSON.parse(
-            JSON.stringify(
-              serializeCampaignSurvey({
-                sections: data.sections,
-                questions: data.questions,
-              }),
-            ),
-          ),
+          questions: serializedSurvey,
           start_date: data.startDate,
           end_date: data.endDate,
         },
