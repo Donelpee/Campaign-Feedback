@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import {
@@ -405,6 +405,7 @@ export function ResponsesViewer() {
     compactView: false,
     showResponseTimestamps: true,
   });
+  const refreshTimeoutRef = useRef<number | null>(null);
 
   const loadViewerSettings = useCallback(async () => {
     if (!user?.id) return;
@@ -428,13 +429,13 @@ export function ResponsesViewer() {
     }
   }, [user?.id]);
 
-  const loadData = useCallback(async () => {
+  const loadResponseData = useCallback(async () => {
     try {
       const companyId = filterCompany === "all" ? null : filterCompany;
       const campaignId = filterCampaign === "all" ? null : filterCampaign;
       const offset = (currentPage - 1) * RESPONSE_PAGE_SIZE;
 
-      const [responsesRes, summaryRes, companiesRes, linksRes] = await Promise.all([
+      const [responsesRes, summaryRes] = await Promise.all([
         supabase.rpc("get_feedback_response_page", {
           p_company_id: companyId,
           p_campaign_id: campaignId,
@@ -445,19 +446,10 @@ export function ResponsesViewer() {
           p_company_id: companyId,
           p_campaign_id: campaignId,
         }),
-        supabase.from("companies").select("*").order("name"),
-        supabase
-          .from("company_campaign_links")
-          .select(
-            `id, company_id, campaign_id, access_count, company:company_id (*), campaign:campaign_id (*)`,
-          )
-          .order("created_at", { ascending: false }),
       ]);
 
       if (responsesRes.error) throw responsesRes.error;
       if (summaryRes.error) throw summaryRes.error;
-      if (companiesRes.error) throw companiesRes.error;
-      if (linksRes.error) throw linksRes.error;
 
       const pageRows = (responsesRes.data || []) as ResponsePageRow[];
       const summaryData = (summaryRes.data || {}) as {
@@ -478,6 +470,31 @@ export function ResponsesViewer() {
       setTotalResponsesCount(nextAnalytics.totalResponses);
       setAnalytics(nextAnalytics);
       setCampaignSummaries((summaryData.campaigns || []) as CampaignSummary[]);
+    } catch (error) {
+      console.error("Error loading data:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load responses.",
+      });
+    }
+  }, [currentPage, filterCampaign, filterCompany, toast]);
+
+  const loadStaticData = useCallback(async () => {
+    try {
+      const [companiesRes, linksRes] = await Promise.all([
+        supabase.from("companies").select("*").order("name"),
+        supabase
+          .from("company_campaign_links")
+          .select(
+            `id, company_id, campaign_id, access_count, company:company_id (*), campaign:campaign_id (*)`,
+          )
+          .order("created_at", { ascending: false }),
+      ]);
+
+      if (companiesRes.error) throw companiesRes.error;
+      if (linksRes.error) throw linksRes.error;
+
       setCompanies((companiesRes.data || []) as Company[]);
       setLinks(
         ((linksRes.data || []) as RawLinkRow[]).map((row) => {
@@ -490,8 +507,7 @@ export function ResponsesViewer() {
             company: row.company,
             campaign: {
               ...row.campaign,
-              campaign_type: row.campaign
-                .campaign_type as Campaign["campaign_type"],
+              campaign_type: row.campaign.campaign_type as Campaign["campaign_type"],
               sections: survey.sections,
               questions: survey.questions,
             },
@@ -499,39 +515,63 @@ export function ResponsesViewer() {
         }),
       );
     } catch (error) {
-      console.error("Error loading data:", error);
+      console.error("Error loading static response viewer data:", error);
       toast({
         variant: "destructive",
         title: "Error",
-        description: "Failed to load responses.",
+        description: "Failed to load response viewer data.",
       });
+    }
+  }, [toast]);
+
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      await Promise.all([loadStaticData(), loadResponseData()]);
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, filterCampaign, filterCompany, toast]);
+  }, [loadResponseData, loadStaticData]);
 
   useEffect(() => {
-    loadViewerSettings();
-  }, [loadViewerSettings]);
+    setIsLoading(true);
+    Promise.all([loadViewerSettings(), loadStaticData()])
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [loadStaticData, loadViewerSettings]);
 
   useEffect(() => {
-    loadData();
+    setIsLoading(true);
+    Promise.resolve(loadResponseData()).finally(() => {
+      setIsLoading(false);
+    });
+  }, [loadResponseData]);
 
+  useEffect(() => {
     const channel = supabase
       .channel("feedback-responses")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "feedback_responses" },
         () => {
-          loadData();
+          if (refreshTimeoutRef.current) {
+            window.clearTimeout(refreshTimeoutRef.current);
+          }
+          refreshTimeoutRef.current = window.setTimeout(() => {
+            void loadResponseData();
+          }, 900);
         },
       )
       .subscribe();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
       supabase.removeChannel(channel);
     };
-  }, [loadData]);
+  }, [loadResponseData]);
 
   // Reset campaign filter when company changes
   useEffect(() => {

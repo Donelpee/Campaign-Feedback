@@ -13,6 +13,7 @@ declare const Deno: {
 
 interface SubmitFeedbackRequest {
   code: string;
+  clientSessionId?: string | null;
   payload: Record<string, unknown>;
 }
 
@@ -40,6 +41,12 @@ interface UserSettingsRow {
   user_id: string;
   email_notifications: boolean;
 }
+
+declare const EdgeRuntime:
+  | {
+      waitUntil: (promise: Promise<unknown>) => void;
+    }
+  | undefined;
 
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
@@ -167,38 +174,93 @@ async function sha256Hex(value: string) {
     .join("");
 }
 
-async function enforceRateLimit(code: string, ipFingerprint: string) {
-  const perCodeWindow = new Date(Date.now() - 15 * 60 * 1000).toISOString();
-  const perIpWindow = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+async function enforceRateLimitWithClient(
+  code: string,
+  ipFingerprint: string,
+  clientFingerprint: string | null,
+) {
+  const shortWindow = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+  const hourWindow = new Date(Date.now() - 60 * 60 * 1000).toISOString();
 
-  const [recentForCode, recentForIp] = await Promise.all([
+  const queries: Array<Promise<Array<{ id: string }>>> = [
     postgrest<Array<{ id: string }>>(
-      `feedback_submission_attempts?select=id&ip_fingerprint=eq.${ipFingerprint}&link_code=eq.${encodeURIComponent(code)}&attempted_at=gte.${encodeURIComponent(perCodeWindow)}&limit=6`,
+      `feedback_submission_attempts?select=id&ip_fingerprint=eq.${ipFingerprint}&link_code=eq.${encodeURIComponent(code)}&attempted_at=gte.${encodeURIComponent(shortWindow)}&limit=1001`,
       { method: "GET" },
     ),
     postgrest<Array<{ id: string }>>(
-      `feedback_submission_attempts?select=id&ip_fingerprint=eq.${ipFingerprint}&attempted_at=gte.${encodeURIComponent(perIpWindow)}&limit=21`,
+      `feedback_submission_attempts?select=id&ip_fingerprint=eq.${ipFingerprint}&attempted_at=gte.${encodeURIComponent(hourWindow)}&limit=2501`,
       { method: "GET" },
     ),
-  ]);
+  ];
 
-  if (recentForCode.length >= 5 || recentForIp.length >= 20) {
+  if (clientFingerprint) {
+    queries.push(
+      postgrest<Array<{ id: string }>>(
+        `feedback_submission_attempts?select=id&client_fingerprint=eq.${clientFingerprint}&link_code=eq.${encodeURIComponent(code)}&attempted_at=gte.${encodeURIComponent(shortWindow)}&limit=7`,
+        { method: "GET" },
+      ),
+      postgrest<Array<{ id: string }>>(
+        `feedback_submission_attempts?select=id&client_fingerprint=eq.${clientFingerprint}&attempted_at=gte.${encodeURIComponent(hourWindow)}&limit=13`,
+        { method: "GET" },
+      ),
+    );
+  }
+
+  const [recentIpForCode, recentIpOverall, recentClientForCode, recentClientOverall] =
+    await Promise.all(queries);
+
+  if (recentIpForCode.length >= 1000 || recentIpOverall.length >= 2500) {
+    return false;
+  }
+
+  if (
+    clientFingerprint &&
+    ((recentClientForCode?.length || 0) >= 6 || (recentClientOverall?.length || 0) >= 12)
+  ) {
     return false;
   }
 
   return true;
 }
 
-async function recordSubmissionAttempt(code: string, ipFingerprint: string) {
-  await postgrest(
+async function recordSubmissionAttempt(
+  code: string,
+  ipFingerprint: string,
+  clientFingerprint: string | null,
+  attemptStatus: "received" | "submitted" | "failed" | "rate_limited" = "received",
+) {
+  const rows = await postgrest<Array<{ id: string }>>(
     "feedback_submission_attempts",
     {
       method: "POST",
-      headers: { Prefer: "return=minimal" },
+      headers: { Prefer: "return=representation" },
       body: JSON.stringify({
         link_code: code,
         ip_fingerprint: ipFingerprint,
+        client_fingerprint: clientFingerprint,
+        attempt_status: attemptStatus,
       }),
+    },
+  );
+
+  return rows[0]?.id || null;
+}
+
+async function updateSubmissionAttempt(
+  attemptId: string | null,
+  updates: {
+    attempt_status?: "submitted" | "failed" | "rate_limited";
+    response_id?: string;
+  },
+) {
+  if (!attemptId) return;
+
+  await postgrest(
+    `feedback_submission_attempts?id=eq.${attemptId}`,
+    {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify(updates),
     },
   );
 }
@@ -332,6 +394,19 @@ async function sendAdminNotifications(code: string, responseId: string) {
   return { sent, failed, skipped };
 }
 
+function scheduleAdminNotifications(code: string, responseId: string) {
+  const task = sendAdminNotifications(code, responseId).catch((error) => {
+    console.error("submit-feedback-response post-submit notification error:", error);
+  });
+
+  if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+    EdgeRuntime.waitUntil(task);
+    return;
+  }
+
+  void task;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -341,9 +416,13 @@ Deno.serve(async (request) => {
     return jsonResponse(405, { error: "Method not allowed" });
   }
 
+  let attemptId: string | null = null;
+
   try {
     const body = (await request.json()) as SubmitFeedbackRequest;
     const code = String(body?.code || "").trim();
+    const clientSessionId =
+      typeof body?.clientSessionId === "string" ? body.clientSessionId.trim() : "";
     const payload =
       body?.payload && typeof body.payload === "object" && !Array.isArray(body.payload)
         ? body.payload
@@ -353,33 +432,57 @@ Deno.serve(async (request) => {
       return jsonResponse(400, { error: "A feedback code and payload are required." });
     }
 
-    const clientFingerprint = await sha256Hex(getClientIp(request));
-    const withinLimit = await enforceRateLimit(code, clientFingerprint);
+    const ipFingerprint = await sha256Hex(getClientIp(request));
+    const sessionFingerprint = clientSessionId
+      ? await sha256Hex(`session:${clientSessionId}`)
+      : null;
+    const withinLimit = await enforceRateLimitWithClient(
+      code,
+      ipFingerprint,
+      sessionFingerprint,
+    );
     if (!withinLimit) {
+      await recordSubmissionAttempt(
+        code,
+        ipFingerprint,
+        sessionFingerprint,
+        "rate_limited",
+      );
       return jsonResponse(429, {
-        error: "Too many submissions from this connection. Please wait before trying again.",
+        error:
+          "Too many recent submission attempts from this browser or network. Please wait a few minutes and try again.",
       });
     }
 
-    await recordSubmissionAttempt(code, clientFingerprint);
+    attemptId = await recordSubmissionAttempt(
+      code,
+      ipFingerprint,
+      sessionFingerprint,
+      "received",
+    );
 
     const responseId = await postRpc<string>("submit_feedback_response", {
       p_code: code,
       p_payload: payload,
     });
 
-    try {
-      await sendAdminNotifications(code, String(responseId));
-    } catch (error) {
-      // Notification delivery must never block a successful respondent submission.
-      console.error("submit-feedback-response post-submit notification error:", error);
-    }
+    await updateSubmissionAttempt(attemptId, {
+      attempt_status: "submitted",
+      response_id: String(responseId),
+    });
+
+    scheduleAdminNotifications(code, String(responseId));
 
     return jsonResponse(200, {
       responseId,
       message: "Feedback submitted successfully.",
     });
   } catch (error) {
+    await updateSubmissionAttempt(attemptId, {
+      attempt_status: "failed",
+    }).catch((attemptError) => {
+      console.error("submit-feedback-response attempt update failed:", attemptError);
+    });
     console.error("submit-feedback-response function error:", error);
     return jsonResponse(500, {
       error:

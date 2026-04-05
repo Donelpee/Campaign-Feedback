@@ -119,6 +119,25 @@ function getCountdownParts(endDate: string | null | undefined, currentTime: numb
   };
 }
 
+const FEEDBACK_RESPONDER_SESSION_KEY = "feedback-responder-session-id";
+
+function getFeedbackResponderSessionId(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const existing = window.localStorage.getItem(FEEDBACK_RESPONDER_SESSION_KEY);
+    if (existing && existing.trim().length > 0) {
+      return existing;
+    }
+
+    const nextValue = crypto.randomUUID();
+    window.localStorage.setItem(FEEDBACK_RESPONDER_SESSION_KEY, nextValue);
+    return nextValue;
+  } catch {
+    return null;
+  }
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -772,6 +791,7 @@ export default function FeedbackForm() {
       const { error } = await supabase.functions.invoke("submit-feedback-response", {
         body: {
           code,
+          clientSessionId: getFeedbackResponderSessionId(),
           payload: {
             overall_satisfaction: derivedPayload.overall_satisfaction,
             service_quality: derivedPayload.service_quality,

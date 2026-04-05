@@ -159,6 +159,22 @@ export default function AdminCampaignBuilder() {
 
         const linkIds = (links || []).map((link) => link.id);
         if (linkIds.length > 0) {
+          const { data: currentCampaignMeta, error: currentCampaignMetaError } =
+            await supabase
+              .from("campaigns")
+              .select("company_id")
+              .eq("id", data.campaignId)
+              .single();
+          if (currentCampaignMetaError) throw currentCampaignMetaError;
+
+          if ((currentCampaignMeta.company_id || "") !== (data.selectedCompanyId || "")) {
+            throw new Error(
+              "Campaign company cannot be changed after a link has been generated.",
+            );
+          }
+        }
+
+        if (linkIds.length > 0) {
           const { count, error: countError } = await supabase
             .from("feedback_responses")
             .select("id", { count: "exact", head: true })
