@@ -1,6 +1,6 @@
 // Feedback form for campaign links (public)
 // Accessibility: Semantic HTML, clear headings, accessible controls, ARIA labels
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -134,6 +134,7 @@ export default function FeedbackForm() {
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [sectionHistory, setSectionHistory] = useState<string[]>([]);
   const [pendingTargetQuestionId, setPendingTargetQuestionId] = useState<string | null>(null);
+  const formStartRef = useRef<HTMLDivElement | null>(null);
   const [dynamicAnswers, setDynamicAnswers] = useState<
     Record<string, DynamicAnswer>
   >({});
@@ -402,16 +403,16 @@ export default function FeedbackForm() {
     () => getCountdownParts(linkData?.end_date, currentTime),
     [currentTime, linkData?.end_date],
   );
-  const thankYouDisplayName = useMemo(() => {
+  const thankYouSignoffName = useMemo(() => {
     const candidate = linkData?.thank_you_display_name?.trim();
-    return candidate && candidate.length > 0 ? candidate : linkData?.company_name || "us";
-  }, [linkData?.company_name, linkData?.thank_you_display_name]);
+    return candidate && candidate.length > 0 ? candidate : null;
+  }, [linkData?.thank_you_display_name]);
   const thankYouMessage = useMemo(
     () =>
-      thankYouDisplayName === "us"
+      !thankYouSignoffName
         ? "We appreciate your time and valuable input."
-        : `${thankYouDisplayName} appreciates your time and valuable input.`,
-    [thankYouDisplayName],
+        : `${thankYouSignoffName} appreciates your time and valuable input.`,
+    [thankYouSignoffName],
   );
 
   const getNextRouteDestination = useCallback(() => {
@@ -686,6 +687,22 @@ export default function FeedbackForm() {
     };
   }, [pendingTargetQuestionId, currentSectionIndex]);
 
+  useEffect(() => {
+    if (isLoading || loadError || isSubmitted || pendingTargetQuestionId || !linkData?.id) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      formStartRef.current?.scrollIntoView({
+        behavior: "auto",
+        block: "start",
+      });
+      formStartRef.current?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [isLoading, loadError, isSubmitted, pendingTargetQuestionId, linkData?.id]);
+
   if (isLoading) {
     return (
       <div className="admin-shell-bg min-h-screen flex items-center justify-center">
@@ -733,8 +750,18 @@ export default function FeedbackForm() {
                 Thank You!
               </h2>
               <p className="mt-2 text-muted-foreground">
-                Your feedback has been submitted successfully. {thankYouMessage}
+                Your feedback has been submitted successfully.
               </p>
+              <div className="mt-5 space-y-2">
+                {thankYouSignoffName && (
+                  <p className="text-xl font-extrabold tracking-tight text-foreground md:text-2xl">
+                    {thankYouSignoffName}
+                  </p>
+                )}
+                <p className="text-sm font-medium text-muted-foreground md:text-base">
+                  {thankYouMessage}
+                </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1455,7 +1482,11 @@ export default function FeedbackForm() {
         </div>
 
         <form onSubmit={handleSubmit}>
-          <div className="space-y-6">
+          <div
+            ref={formStartRef}
+            tabIndex={-1}
+            className="space-y-6 outline-none"
+          >
             {submitError && !isPreviewMode && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
                 {submitError}

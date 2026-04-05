@@ -295,10 +295,10 @@
   }
 
   .feedback-section-card {
-    @apply rounded-2xl border-[3px] border-sky-500/90;
+    @apply rounded-2xl border-4 border-sky-600/90;
     background: linear-gradient(180deg, rgba(233, 245, 255, 0.99) 0%, rgba(214, 235, 252, 0.99) 100%);
     box-shadow:
-      0 16px 34px rgba(54, 110, 163, 0.18),
+      0 18px 36px rgba(54, 110, 163, 0.2),
       inset 0 0 0 1px rgba(138, 191, 236, 0.88);
   }
 
