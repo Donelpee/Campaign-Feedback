@@ -1,6 +1,6 @@
 // Feedback form for campaign links (public)
 // Accessibility: Semantic HTML, clear headings, accessible controls, ARIA labels
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -95,6 +95,8 @@ interface CountdownParts {
   isExpired: boolean;
 }
 
+type FeedbackThemeStyle = CSSProperties & Record<`--${string}`, string>;
+
 function getCampaignExpiryDate(endDate: string): Date {
   const expiry = new Date(endDate);
   expiry.setHours(23, 59, 59, 999);
@@ -118,6 +120,153 @@ function getCountdownParts(endDate: string | null | undefined, currentTime: numb
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function rgbToHsl(red: number, green: number, blue: number) {
+  const r = red / 255;
+  const g = green / 255;
+  const b = blue / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+
+  let hue = 0;
+  const lightness = (max + min) / 2;
+  const saturation =
+    delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+
+  if (delta !== 0) {
+    switch (max) {
+      case r:
+        hue = ((g - b) / delta) % 6;
+        break;
+      case g:
+        hue = (b - r) / delta + 2;
+        break;
+      default:
+        hue = (r - g) / delta + 4;
+        break;
+    }
+  }
+
+  hue = Math.round((hue * 60 + 360) % 360);
+
+  return {
+    h: hue,
+    s: Math.round(saturation * 100),
+    l: Math.round(lightness * 100),
+  };
+}
+
+function buildFeedbackThemeStyle(
+  hue: number,
+  saturation: number,
+  lightness: number,
+): FeedbackThemeStyle {
+  const baseSaturation = clamp(saturation, 42, 78);
+  const accentLightness = clamp(lightness, 34, 52);
+
+  return {
+    "--feedback-radial-a": `hsla(${hue}, ${clamp(baseSaturation - 2, 40, 78)}%, 78%, 0.2)`,
+    "--feedback-radial-b": `hsla(${(hue + 14) % 360}, ${clamp(baseSaturation - 6, 34, 72)}%, 74%, 0.18)`,
+    "--feedback-radial-c": `hsla(${(hue + 28) % 360}, ${clamp(baseSaturation - 10, 28, 66)}%, 68%, 0.16)`,
+    "--feedback-bg-top": `hsl(${hue}, ${clamp(baseSaturation - 20, 28, 60)}%, 95%)`,
+    "--feedback-bg-mid": `hsl(${hue}, ${clamp(baseSaturation - 16, 30, 62)}%, 91%)`,
+    "--feedback-bg-bottom": `hsl(${hue}, ${clamp(baseSaturation - 10, 32, 64)}%, 87%)`,
+    "--feedback-header-border": `hsla(${hue}, ${clamp(baseSaturation - 8, 36, 72)}%, 76%, 0.86)`,
+    "--feedback-header-top": `hsla(${hue}, ${clamp(baseSaturation - 18, 24, 60)}%, 99%, 0.96)`,
+    "--feedback-header-bottom": `hsla(${hue}, ${clamp(baseSaturation - 10, 30, 66)}%, 94%, 0.98)`,
+    "--feedback-header-shadow": `hsla(${hue}, ${clamp(baseSaturation - 6, 30, 72)}%, 36%, 0.16)`,
+    "--feedback-question-border": `hsla(${hue}, ${clamp(baseSaturation - 10, 34, 68)}%, 78%, 0.9)`,
+    "--feedback-question-top": `hsla(${hue}, ${clamp(baseSaturation - 24, 20, 56)}%, 100%, 0.97)`,
+    "--feedback-question-bottom": `hsla(${hue}, ${clamp(baseSaturation - 16, 24, 60)}%, 95%, 0.98)`,
+    "--feedback-question-shadow": `hsla(${hue}, ${clamp(baseSaturation - 8, 28, 68)}%, 34%, 0.11)`,
+    "--feedback-question-inner": `hsla(${hue}, ${clamp(baseSaturation - 12, 28, 64)}%, 86%, 0.9)`,
+    "--feedback-question-hover": `hsla(${hue}, ${clamp(baseSaturation - 2, 36, 78)}%, 74%, 0.95)`,
+    "--feedback-section-border": `hsla(${hue}, ${clamp(baseSaturation + 2, 44, 82)}%, ${accentLightness}%, 0.92)`,
+    "--feedback-section-top": `hsla(${hue}, ${clamp(baseSaturation - 8, 34, 72)}%, 94%, 0.99)`,
+    "--feedback-section-bottom": `hsla(${hue}, ${clamp(baseSaturation - 4, 36, 74)}%, 88%, 0.99)`,
+    "--feedback-section-shadow": `hsla(${hue}, ${clamp(baseSaturation, 38, 76)}%, 32%, 0.2)`,
+    "--feedback-section-inner": `hsla(${hue}, ${clamp(baseSaturation - 4, 34, 74)}%, 72%, 0.88)`,
+  };
+}
+
+const DEFAULT_FEEDBACK_THEME_STYLE = buildFeedbackThemeStyle(210, 58, 44);
+
+async function extractFeedbackThemeStyleFromLogo(
+  logoUrl: string,
+): Promise<FeedbackThemeStyle> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const nextImage = new Image();
+    nextImage.crossOrigin = "anonymous";
+    nextImage.referrerPolicy = "no-referrer";
+    nextImage.onload = () => resolve(nextImage);
+    nextImage.onerror = () => reject(new Error("Unable to load logo colors."));
+    nextImage.src = logoUrl;
+  });
+
+  const canvas = document.createElement("canvas");
+  const size = 48;
+  canvas.width = size;
+  canvas.height = size;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    throw new Error("Canvas context is unavailable.");
+  }
+
+  context.clearRect(0, 0, size, size);
+  context.drawImage(image, 0, 0, size, size);
+
+  const { data } = context.getImageData(0, 0, size, size);
+  let totalWeight = 0;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3] / 255;
+    if (alpha < 0.35) continue;
+
+    const pixelRed = data[index];
+    const pixelGreen = data[index + 1];
+    const pixelBlue = data[index + 2];
+    const max = Math.max(pixelRed, pixelGreen, pixelBlue);
+    const min = Math.min(pixelRed, pixelGreen, pixelBlue);
+    const contrast = max - min;
+    const brightness = (pixelRed + pixelGreen + pixelBlue) / 3;
+
+    if (brightness > 244 && contrast < 18) continue;
+
+    const saturationWeight = contrast / 255;
+    const brightnessWeight = brightness < 42 ? 0.55 : 1;
+    const weight = alpha * (0.4 + saturationWeight * 1.4) * brightnessWeight;
+
+    red += pixelRed * weight;
+    green += pixelGreen * weight;
+    blue += pixelBlue * weight;
+    totalWeight += weight;
+  }
+
+  if (totalWeight < 1) {
+    throw new Error("Logo colors were too faint to sample.");
+  }
+
+  const themeColor = rgbToHsl(
+    Math.round(red / totalWeight),
+    Math.round(green / totalWeight),
+    Math.round(blue / totalWeight),
+  );
+
+  return buildFeedbackThemeStyle(
+    themeColor.h,
+    clamp(themeColor.s, 44, 78),
+    clamp(themeColor.l, 36, 50),
+  );
+}
+
 export default function FeedbackForm() {
   // Routing and state
   const { code } = useParams<{ code: string }>();
@@ -134,7 +283,12 @@ export default function FeedbackForm() {
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0);
   const [sectionHistory, setSectionHistory] = useState<string[]>([]);
   const [pendingTargetQuestionId, setPendingTargetQuestionId] = useState<string | null>(null);
+  const [feedbackThemeStyle, setFeedbackThemeStyle] = useState<FeedbackThemeStyle>(
+    DEFAULT_FEEDBACK_THEME_STYLE,
+  );
+  const pageTopRef = useRef<HTMLDivElement | null>(null);
   const formStartRef = useRef<HTMLDivElement | null>(null);
+  const previousSectionIndexRef = useRef<number | null>(null);
   const [dynamicAnswers, setDynamicAnswers] = useState<
     Record<string, DynamicAnswer>
   >({});
@@ -316,6 +470,31 @@ export default function FeedbackForm() {
 
     return () => window.clearInterval(interval);
   }, [isPreviewMode, linkData?.end_date]);
+
+  useEffect(() => {
+    if (!linkData?.company_logo_url) {
+      setFeedbackThemeStyle(DEFAULT_FEEDBACK_THEME_STYLE);
+      return;
+    }
+
+    let isActive = true;
+
+    void extractFeedbackThemeStyleFromLogo(linkData.company_logo_url)
+      .then((nextTheme) => {
+        if (isActive) {
+          setFeedbackThemeStyle(nextTheme);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setFeedbackThemeStyle(DEFAULT_FEEDBACK_THEME_STYLE);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [linkData?.company_logo_url]);
 
   const hasDynamicQuestions = (linkData?.campaign_questions?.length || 0) > 0;
 
@@ -693,15 +872,68 @@ export default function FeedbackForm() {
     }
 
     const frame = window.requestAnimationFrame(() => {
-      formStartRef.current?.scrollIntoView({
+      pageTopRef.current?.scrollIntoView({
         behavior: "auto",
         block: "start",
       });
-      formStartRef.current?.focus({ preventScroll: true });
+      pageTopRef.current?.focus({ preventScroll: true });
     });
 
     return () => window.cancelAnimationFrame(frame);
   }, [isLoading, loadError, isSubmitted, pendingTargetQuestionId, linkData?.id]);
+
+  useEffect(() => {
+    if (
+      isPreviewMode ||
+      isLoading ||
+      loadError ||
+      isSubmitted ||
+      pendingTargetQuestionId
+    ) {
+      if (pendingTargetQuestionId) {
+        previousSectionIndexRef.current = currentSectionIndex;
+      }
+      return;
+    }
+
+    const previousIndex = previousSectionIndexRef.current;
+    previousSectionIndexRef.current = currentSectionIndex;
+
+    if (previousIndex === null || previousIndex === currentSectionIndex) {
+      return;
+    }
+
+    const firstQuestionId = activeSectionQuestions[0]?.id;
+    const frame = window.requestAnimationFrame(() => {
+      if (currentSectionIndex === 0 || !firstQuestionId) {
+        pageTopRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        pageTopRef.current?.focus({ preventScroll: true });
+        return;
+      }
+
+      const questionElement = document.getElementById(
+        `feedback-question-${firstQuestionId}`,
+      );
+      questionElement?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+      questionElement?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    activeSectionQuestions,
+    currentSectionIndex,
+    isLoading,
+    isPreviewMode,
+    isSubmitted,
+    loadError,
+    pendingTargetQuestionId,
+  ]);
 
   if (isLoading) {
     return (
@@ -1399,7 +1631,12 @@ export default function FeedbackForm() {
   };
 
   return (
-    <div className="admin-shell-bg warm-feedback-bg min-h-screen px-4 py-8">
+    <div
+      ref={pageTopRef}
+      tabIndex={-1}
+      className="admin-shell-bg warm-feedback-bg min-h-screen px-4 py-8 outline-none"
+      style={feedbackThemeStyle}
+    >
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="warm-feedback-header rounded-[28px] border border-border/60 p-6 shadow-sm md:p-8">
           <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
@@ -1409,7 +1646,7 @@ export default function FeedbackForm() {
                   <img
                     src={linkData.company_logo_url}
                     alt={`${linkData.company_name} logo`}
-                    className="h-24 w-auto object-contain md:h-28"
+                    className="h-32 w-auto object-contain md:h-40"
                   />
                   {linkData.company_name && (
                     <p className="mt-2 text-sm text-muted-foreground">
@@ -1542,6 +1779,7 @@ export default function FeedbackForm() {
                           <Card
                             key={question.id}
                             id={`feedback-question-${question.id}`}
+                            tabIndex={-1}
                             className="warm-question-card border-border/70 shadow-sm"
                             style={{ scrollMarginTop: "1rem" }}
                           >
@@ -1583,6 +1821,7 @@ export default function FeedbackForm() {
                     <Card
                       key={question.id}
                       id={`feedback-question-${question.id}`}
+                      tabIndex={-1}
                       className={`warm-question-card border-border/70 shadow-sm ${
                         showValidationErrors && isRequiredQuestionMissing(question)
                           ? "border-destructive/70 ring-1 ring-destructive/40"
