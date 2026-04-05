@@ -23,10 +23,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Loader2, Save, KeyRound, Bell, Palette } from "lucide-react";
-import type {
-  ProfileAccountType,
-  RespondentNamePreference,
-} from "@/lib/supabase-types";
+import type { ProfileAccountType } from "@/lib/supabase-types";
 
 type CreationMode =
   | "guided_buddy";
@@ -44,8 +41,7 @@ export function SettingsManager() {
   const [organizationName, setOrganizationName] = useState("");
   const [accountType, setAccountType] =
     useState<ProfileAccountType>("organization");
-  const [respondentNamePreference, setRespondentNamePreference] =
-    useState<RespondentNamePreference>("organization_name");
+  const [showThankYouSignoff, setShowThankYouSignoff] = useState(true);
   const [inAppCampaignNotifications, setInAppCampaignNotifications] =
     useState(true);
   const [darkModeEnabled, setDarkModeEnabled] = useState(false);
@@ -111,7 +107,7 @@ export function SettingsManager() {
           .maybeSingle(),
         supabase
           .from("profiles")
-          .select("username, full_name, organization_name, account_type, respondent_name_preference")
+          .select("username, full_name, organization_name, account_type, show_thank_you_signoff")
           .eq("user_id", user.id)
           .maybeSingle(),
       ]);
@@ -124,10 +120,7 @@ export function SettingsManager() {
       setAccountType(
         (profileRes.data?.account_type as ProfileAccountType) || "organization",
       );
-      setRespondentNamePreference(
-        (profileRes.data?.respondent_name_preference as RespondentNamePreference) ||
-          "organization_name",
-      );
+      setShowThankYouSignoff(profileRes.data?.show_thank_you_signoff ?? true);
 
       if (settingsRes.data) {
         setInAppCampaignNotifications(
@@ -166,8 +159,6 @@ export function SettingsManager() {
 
     const normalizedFullName = fullName.trim();
     const normalizedOrganizationName = organizationName.trim();
-    const normalizedPreference =
-      accountType === "individual" ? "individual_name" : respondentNamePreference;
 
     if (normalizedFullName.length < 2) {
       toast({
@@ -211,14 +202,14 @@ export function SettingsManager() {
         full_name: string | null;
         organization_name: string | null;
         account_type: ProfileAccountType;
-        respondent_name_preference: RespondentNamePreference;
+        show_thank_you_signoff: boolean;
         username?: string;
       } = {
         full_name: normalizedFullName,
         organization_name:
           accountType === "organization" ? normalizedOrganizationName : null,
         account_type: accountType,
-        respondent_name_preference: normalizedPreference,
+        show_thank_you_signoff: showThankYouSignoff,
       };
 
       if (normalizedUsername.length > 0) {
@@ -337,9 +328,6 @@ export function SettingsManager() {
               value={accountType}
               onValueChange={(value: ProfileAccountType) => {
                 setAccountType(value);
-                if (value === "individual") {
-                  setRespondentNamePreference("individual_name");
-                }
               }}
               disabled={isLoadingSettings || isSavingSettings}
             >
@@ -352,8 +340,8 @@ export function SettingsManager() {
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              Organization profiles can show either the linked company name or your personal name
-              in the responder thank-you note.
+              Individual accounts use your personal name. Organization accounts use the organization
+              name saved in your profile when signoff is enabled.
             </p>
           </div>
           {accountType === "organization" && (
@@ -373,28 +361,24 @@ export function SettingsManager() {
           <div className="space-y-2">
             <Label>Thank-You Note Signoff</Label>
             <Select
-              value={
-                accountType === "individual"
-                  ? "individual_name"
-                  : respondentNamePreference
-              }
-              onValueChange={(value: RespondentNamePreference) =>
-                setRespondentNamePreference(value)
-              }
-              disabled={isLoadingSettings || isSavingSettings || accountType === "individual"}
+              value={showThankYouSignoff ? "yes" : "no"}
+              onValueChange={(value) => setShowThankYouSignoff(value === "yes")}
+              disabled={isLoadingSettings || isSavingSettings}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Choose signoff style" />
+                <SelectValue placeholder="Choose yes or no" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="organization_name">Organization name</SelectItem>
-                <SelectItem value="individual_name">Individual name</SelectItem>
+                <SelectItem value="yes">Yes</SelectItem>
+                <SelectItem value="no">No</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {accountType === "individual"
-                ? "Individual accounts always use your personal profile name."
-                : "Organization name uses the organization name saved in your profile on the published feedback form."}
+              {showThankYouSignoff
+                ? accountType === "individual"
+                  ? "The thank-you page will show your personal profile name."
+                  : "The thank-you page will show the organization name saved in your profile."
+                : "The thank-you page will not show your personal or organization signoff name."}
             </p>
           </div>
 

@@ -350,6 +350,7 @@ export type Database = {
           id: string;
           organization_name: string | null;
           respondent_name_preference: string;
+          show_thank_you_signoff: boolean;
           updated_at: string;
           user_id: string;
           username: string | null;
@@ -362,6 +363,7 @@ export type Database = {
           id?: string;
           organization_name?: string | null;
           respondent_name_preference?: string;
+          show_thank_you_signoff?: boolean;
           updated_at?: string;
           user_id: string;
           username?: string | null;
@@ -374,6 +376,7 @@ export type Database = {
           id?: string;
           organization_name?: string | null;
           respondent_name_preference?: string;
+          show_thank_you_signoff?: boolean;
           updated_at?: string;
           user_id?: string;
           username?: string | null;

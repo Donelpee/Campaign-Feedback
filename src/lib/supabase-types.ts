@@ -228,6 +228,7 @@ export interface Profile {
   organization_name?: string | null;
   account_type?: ProfileAccountType;
   respondent_name_preference?: RespondentNamePreference;
+  show_thank_you_signoff?: boolean;
   created_at: string;
   updated_at: string;
 }

@@ -16,8 +16,8 @@ interface ConsumePayload {
   username?: string;
   fullName?: string;
   accountType?: string;
-  respondentNamePreference?: string;
   organizationName?: string;
+  showThankYouSignoff?: boolean;
   password: string;
 }
 
@@ -62,8 +62,8 @@ async function createAuthUser(params: {
   username: string;
   fullName: string;
   accountType: string;
-  respondentNamePreference: string;
   organizationName: string | null;
+  showThankYouSignoff: boolean;
   password: string;
 }): Promise<string> {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -85,8 +85,10 @@ async function createAuthUser(params: {
         full_name: params.fullName,
         username: params.username,
         account_type: params.accountType,
-        respondent_name_preference: params.respondentNamePreference,
+        respondent_name_preference:
+          params.accountType === "individual" ? "individual_name" : "organization_name",
         organization_name: params.organizationName,
+        show_thank_you_signoff: params.showThankYouSignoff,
       },
     }),
   });
@@ -149,18 +151,11 @@ Deno.serve(async (request) => {
       String(payload?.accountType || "organization").trim().toLowerCase() === "individual"
         ? "individual"
         : "organization";
-    const respondentNamePreference =
-      accountType === "individual"
-        ? "individual_name"
-        : String(payload?.respondentNamePreference || "organization_name")
-            .trim()
-            .toLowerCase() === "individual_name"
-          ? "individual_name"
-          : "organization_name";
     const organizationName =
       accountType === "organization"
         ? String(payload?.organizationName || "").trim()
         : "";
+    const showThankYouSignoff = payload?.showThankYouSignoff !== false;
     if (accountType === "organization" && organizationName.length < 2) {
       return jsonResponse(400, {
         error: "Organization name must be at least 2 characters.",
@@ -180,8 +175,8 @@ Deno.serve(async (request) => {
       username,
       fullName,
       accountType,
-      respondentNamePreference,
       organizationName: accountType === "organization" ? organizationName : null,
+      showThankYouSignoff,
       password,
     });
 
@@ -195,8 +190,10 @@ Deno.serve(async (request) => {
           full_name: fullName,
           username,
           account_type: accountType,
-          respondent_name_preference: respondentNamePreference,
+          respondent_name_preference:
+            accountType === "individual" ? "individual_name" : "organization_name",
           organization_name: accountType === "organization" ? organizationName : null,
+          show_thank_you_signoff: showThankYouSignoff,
         }),
       },
     );

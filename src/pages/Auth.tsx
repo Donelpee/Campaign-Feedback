@@ -25,10 +25,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import type {
-  ProfileAccountType,
-  RespondentNamePreference,
-} from "@/lib/supabase-types";
+import type { ProfileAccountType } from "@/lib/supabase-types";
 
 const emailSchema = z.string().email("Please enter a valid email address");
 const passwordSchema = z
@@ -53,23 +50,6 @@ const accountTypeOptions: Array<{
   },
 ];
 
-const respondentPreferenceOptions: Array<{
-  value: RespondentNamePreference;
-  label: string;
-  description: string;
-}> = [
-  {
-    value: "organization_name",
-    label: "Organization name",
-    description: "Published thank-you notes will use the organization name saved in your profile.",
-  },
-  {
-    value: "individual_name",
-    label: "Individual name",
-    description: "Published thank-you notes will use your personal profile name.",
-  },
-];
-
 export default function Auth() {
   const { toast } = useToast();
   const navigate = useNavigate();
@@ -91,8 +71,7 @@ export default function Auth() {
   const [signupOrganizationName, setSignupOrganizationName] = useState("");
   const [signupAccountType, setSignupAccountType] =
     useState<ProfileAccountType>("organization");
-  const [signupRespondentNamePreference, setSignupRespondentNamePreference] =
-    useState<RespondentNamePreference>("organization_name");
+  const [signupShowThankYouSignoff, setSignupShowThankYouSignoff] = useState(true);
   const [magicLinkCooldown, setMagicLinkCooldown] = useState(0);
   const [resetCooldown, setResetCooldown] = useState(0);
   const [onboardingToken, setOnboardingToken] = useState("");
@@ -102,8 +81,7 @@ export default function Auth() {
   const [onboardingPassword, setOnboardingPassword] = useState("");
   const [onboardingAccountType, setOnboardingAccountType] =
     useState<ProfileAccountType>("organization");
-  const [onboardingRespondentNamePreference, setOnboardingRespondentNamePreference] =
-    useState<RespondentNamePreference>("organization_name");
+  const [onboardingShowThankYouSignoff, setOnboardingShowThankYouSignoff] = useState(true);
 
   const supabaseHost = (() => {
     try {
@@ -249,12 +227,9 @@ export default function Auth() {
     setIsLoading(true);
     const { error } = await signUp(signupEmail, signupPassword, signupName, {
       accountType: signupAccountType,
-      respondentNamePreference:
-        signupAccountType === "individual"
-          ? "individual_name"
-          : signupRespondentNamePreference,
       organizationName:
         signupAccountType === "organization" ? signupOrganizationName : undefined,
+      showThankYouSignoff: signupShowThankYouSignoff,
     });
 
     if (error) {
@@ -282,7 +257,7 @@ export default function Auth() {
       setSignupName("");
       setSignupOrganizationName("");
       setSignupAccountType("organization");
-      setSignupRespondentNamePreference("organization_name");
+      setSignupShowThankYouSignoff(true);
     }
 
     setIsLoading(false);
@@ -431,14 +406,11 @@ export default function Auth() {
         username: onboardingUsername,
         fullName: onboardingFullName,
         accountType: onboardingAccountType,
-        respondentNamePreference:
-          onboardingAccountType === "individual"
-            ? "individual_name"
-            : onboardingRespondentNamePreference,
         organizationName:
           onboardingAccountType === "organization"
             ? onboardingOrganizationName
             : undefined,
+        showThankYouSignoff: onboardingShowThankYouSignoff,
         password: onboardingPassword,
       },
     });
@@ -459,7 +431,7 @@ export default function Auth() {
     setOnboardingFullName("");
     setOnboardingOrganizationName("");
     setOnboardingAccountType("organization");
-    setOnboardingRespondentNamePreference("organization_name");
+    setOnboardingShowThankYouSignoff(true);
     window.history.replaceState({}, "", "/auth");
   };
 
@@ -547,16 +519,13 @@ export default function Auth() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="onboard-account-type">Account Type</Label>
-                    <Select
-                      value={onboardingAccountType}
-                      onValueChange={(value: ProfileAccountType) => {
-                        setOnboardingAccountType(value);
-                        if (value === "individual") {
-                          setOnboardingRespondentNamePreference("individual_name");
-                        }
-                      }}
-                      disabled={isLoading}
-                    >
+                      <Select
+                        value={onboardingAccountType}
+                        onValueChange={(value: ProfileAccountType) => {
+                          setOnboardingAccountType(value);
+                        }}
+                        disabled={isLoading}
+                      >
                       <SelectTrigger id="onboard-account-type">
                         <SelectValue placeholder="Choose account type" />
                       </SelectTrigger>
@@ -598,31 +567,26 @@ export default function Auth() {
                       Thank-you note signoff
                     </Label>
                     <Select
-                      value={
-                        onboardingAccountType === "individual"
-                          ? "individual_name"
-                          : onboardingRespondentNamePreference
+                      value={onboardingShowThankYouSignoff ? "yes" : "no"}
+                      onValueChange={(value) =>
+                        setOnboardingShowThankYouSignoff(value === "yes")
                       }
-                      onValueChange={(value: RespondentNamePreference) =>
-                        setOnboardingRespondentNamePreference(value)
-                      }
-                      disabled={isLoading || onboardingAccountType === "individual"}
+                      disabled={isLoading}
                     >
                       <SelectTrigger id="onboard-thank-you-mode">
-                        <SelectValue placeholder="Choose thank-you signoff" />
+                        <SelectValue placeholder="Choose yes or no" />
                       </SelectTrigger>
                       <SelectContent>
-                        {respondentPreferenceOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
+                        <SelectItem value="yes">Yes</SelectItem>
+                        <SelectItem value="no">No</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                      {onboardingAccountType === "individual"
-                        ? "Individual accounts always use your personal profile name."
-                        : "Organization name uses the organization name saved in your profile."}
+                      {onboardingShowThankYouSignoff
+                        ? onboardingAccountType === "individual"
+                          ? "Responders will see your personal profile name on the thank-you page."
+                          : "Responders will see the organization name saved in your profile on the thank-you page."
+                        : "The thank-you page will not show your personal or organization signoff name."}
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -771,9 +735,6 @@ export default function Auth() {
                         value={signupAccountType}
                         onValueChange={(value: ProfileAccountType) => {
                           setSignupAccountType(value);
-                          if (value === "individual") {
-                            setSignupRespondentNamePreference("individual_name");
-                          }
                         }}
                         disabled={isLoading}
                       >
@@ -818,31 +779,26 @@ export default function Auth() {
                         Thank-you note signoff
                       </Label>
                       <Select
-                        value={
-                          signupAccountType === "individual"
-                            ? "individual_name"
-                            : signupRespondentNamePreference
+                        value={signupShowThankYouSignoff ? "yes" : "no"}
+                        onValueChange={(value) =>
+                          setSignupShowThankYouSignoff(value === "yes")
                         }
-                        onValueChange={(value: RespondentNamePreference) =>
-                          setSignupRespondentNamePreference(value)
-                        }
-                        disabled={isLoading || signupAccountType === "individual"}
+                        disabled={isLoading}
                       >
                         <SelectTrigger id="signup-thank-you-mode">
-                          <SelectValue placeholder="Choose thank-you signoff" />
+                          <SelectValue placeholder="Choose yes or no" />
                         </SelectTrigger>
                         <SelectContent>
-                          {respondentPreferenceOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="yes">Yes</SelectItem>
+                          <SelectItem value="no">No</SelectItem>
                         </SelectContent>
                       </Select>
                       <p className="text-xs text-muted-foreground">
-                        {signupAccountType === "individual"
-                          ? "Individual accounts always use your personal profile name."
-                          : "Organization name uses the organization name saved in your profile."}
+                        {signupShowThankYouSignoff
+                          ? signupAccountType === "individual"
+                            ? "Responders will see your personal profile name on the thank-you page."
+                            : "Responders will see the organization name saved in your profile on the thank-you page."
+                          : "The thank-you page will not show your personal or organization signoff name."}
                       </p>
                     </div>
 

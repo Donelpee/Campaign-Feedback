@@ -10,7 +10,6 @@ import { supabase } from "@/integrations/supabase/client";
 import type {
   AppRole,
   ProfileAccountType,
-  RespondentNamePreference,
 } from "@/lib/supabase-types";
 
 export const AUTH_BYPASS_MODE = false;
@@ -34,8 +33,8 @@ interface AuthContextType {
     fullName: string,
     profileOptions?: {
       accountType: ProfileAccountType;
-      respondentNamePreference: RespondentNamePreference;
       organizationName?: string;
+      showThankYouSignoff: boolean;
     },
   ) => Promise<{ error: Error | null }>;
   resetPassword: (email: string) => Promise<{ error: Error | null }>;
@@ -153,8 +152,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     fullName: string,
     profileOptions?: {
       accountType: ProfileAccountType;
-      respondentNamePreference: RespondentNamePreference;
       organizationName?: string;
+      showThankYouSignoff: boolean;
     },
   ) => {
     if (AUTH_BYPASS_MODE) {
@@ -177,11 +176,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           respondent_name_preference:
             profileOptions?.accountType === "individual"
               ? "individual_name"
-              : profileOptions?.respondentNamePreference || "organization_name",
+              : "organization_name",
           organization_name:
             profileOptions?.accountType === "organization"
               ? profileOptions?.organizationName?.trim() || fullName
               : "",
+          show_thank_you_signoff: profileOptions?.showThankYouSignoff ?? true,
         },
       },
     });
