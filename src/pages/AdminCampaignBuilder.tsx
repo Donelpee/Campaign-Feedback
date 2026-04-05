@@ -94,6 +94,7 @@ export default function AdminCampaignBuilder() {
       const now = new Date().toISOString();
       const campaign: Campaign = {
         id: data.campaignId || crypto.randomUUID(),
+        company_id: data.selectedCompanyId || null,
         name: data.name.trim(),
         description: data.description.trim() || null,
         campaign_type: data.campaignType,
@@ -168,7 +169,7 @@ export default function AdminCampaignBuilder() {
             const { data: existingCampaign, error: existingCampaignError } =
               await supabase
                 .from("campaigns")
-                .select("name, description, campaign_type, questions, start_date")
+                .select("name, description, campaign_type, questions, start_date, company_id")
                 .eq("id", data.campaignId)
                 .single();
             if (existingCampaignError) throw existingCampaignError;
@@ -190,13 +191,16 @@ export default function AdminCampaignBuilder() {
               (existingCampaign.description || "").trim() ===
               (data.description.trim() || "");
             const sameStartDate = existingCampaign.start_date === data.startDate;
+            const sameCompanyId =
+              (existingCampaign.company_id || "") === (data.selectedCompanyId || "");
 
             if (
               !sameQuestions ||
               !sameCampaignType ||
               !sameName ||
               !sameDescription ||
-              !sameStartDate
+              !sameStartDate ||
+              !sameCompanyId
             ) {
               throw new Error(
                 "This campaign has responses. Only the end date can be changed to extend or reactivate it.",
@@ -208,6 +212,7 @@ export default function AdminCampaignBuilder() {
         const { data: updatedCampaign, error: updateError } = await supabase
           .from("campaigns")
           .update({
+            company_id: data.selectedCompanyId,
             name: trimmedName,
             description: data.description.trim() || null,
             campaign_type: data.campaignType,
@@ -243,6 +248,7 @@ export default function AdminCampaignBuilder() {
 
       const { error: campaignError } = await supabase.from("campaigns").insert([
         {
+          company_id: data.selectedCompanyId,
           name: trimmedName,
           description: data.description.trim() || null,
           campaign_type: data.campaignType,

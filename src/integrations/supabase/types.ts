@@ -177,6 +177,7 @@ export type Database = {
       campaigns: {
         Row: {
           campaign_type: string | null;
+          company_id: string | null;
           created_at: string;
           created_by_user_id: string | null;
           description: string | null;
@@ -190,6 +191,7 @@ export type Database = {
         };
         Insert: {
           campaign_type?: string | null;
+          company_id?: string | null;
           created_at?: string;
           created_by_user_id?: string | null;
           description?: string | null;
@@ -203,6 +205,7 @@ export type Database = {
         };
         Update: {
           campaign_type?: string | null;
+          company_id?: string | null;
           created_at?: string;
           created_by_user_id?: string | null;
           description?: string | null;
@@ -214,7 +217,15 @@ export type Database = {
           tenant_id?: string;
           updated_at?: string;
         };
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       companies: {
         Row: {

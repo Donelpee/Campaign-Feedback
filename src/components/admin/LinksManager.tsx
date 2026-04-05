@@ -147,7 +147,9 @@ export function LinksManager() {
   const [isDispatchingInvites, setIsDispatchingInvites] = useState(false);
   const [isDispatchingReminders, setIsDispatchingReminders] = useState(false);
   const availableCampaigns = campaigns.filter(
-    (campaign) => !links.some((link) => link.campaign_id === campaign.id),
+    (campaign) =>
+      !links.some((link) => link.campaign_id === campaign.id) &&
+      (!selectedCompany || !campaign.company_id || campaign.company_id === selectedCompany),
   );
 
   const sb = supabase as unknown as {
@@ -222,6 +224,7 @@ export function LinksManager() {
           const survey = normalizeCampaignSurvey(c.questions);
           return {
             ...c,
+            company_id: c.company_id,
             campaign_type: c.campaign_type as Campaign["campaign_type"],
             sections: survey.sections,
             questions: survey.questions,
@@ -278,11 +281,20 @@ export function LinksManager() {
     setIsSaving(true);
 
     try {
+      const companyIdForLink = selectedCampaignRecord.company_id || selectedCompany;
+      if (!companyIdForLink) {
+        throw new Error("Selected campaign is missing its company. Edit the campaign and pick a company first.");
+      }
+
+      if (selectedCampaignRecord.company_id && selectedCampaignRecord.company_id !== selectedCompany) {
+        throw new Error("This campaign belongs to a different company. Select the matching company or re-open the campaign and confirm its company.");
+      }
+
       let created = false;
       for (let attempt = 0; attempt < 5 && !created; attempt++) {
         const uniqueCode = generateUniqueCode();
         const { error } = await supabase.from("company_campaign_links").insert({
-          company_id: selectedCompany,
+          company_id: companyIdForLink,
           campaign_id: selectedCampaign,
           unique_code: uniqueCode,
         });
@@ -611,7 +623,22 @@ export function LinksManager() {
                     <Label>Company</Label>
                     <Select
                       value={selectedCompany}
-                      onValueChange={setSelectedCompany}
+                      onValueChange={(value) => {
+                        setSelectedCompany(value);
+                        setSelectedCampaign((currentCampaignId) => {
+                          const currentCampaign = campaigns.find(
+                            (campaign) => campaign.id === currentCampaignId,
+                          );
+                          if (
+                            currentCampaign &&
+                            currentCampaign.company_id &&
+                            currentCampaign.company_id !== value
+                          ) {
+                            return "";
+                          }
+                          return currentCampaignId;
+                        });
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select a company" />
@@ -641,7 +668,13 @@ export function LinksManager() {
                     <Label>Campaign</Label>
                     <Select
                       value={selectedCampaign}
-                      onValueChange={setSelectedCampaign}
+                      onValueChange={(value) => {
+                        setSelectedCampaign(value);
+                        const campaign = campaigns.find((item) => item.id === value);
+                        if (campaign?.company_id) {
+                          setSelectedCompany(campaign.company_id);
+                        }
+                      }}
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Select a campaign" />

@@ -127,6 +127,7 @@ export interface CampaignSurveyDefinition {
 
 export interface Campaign {
   id: string;
+  company_id?: string | null;
   name: string;
   description: string | null;
   campaign_type: CampaignType;

@@ -89,7 +89,7 @@ export function CampaignsManager() {
     }
 
     try {
-      const [campaignsRes, linksRes, countsRes] = await Promise.all([
+      const [campaignsRes, linksRes, companiesRes, countsRes] = await Promise.all([
         supabase
           .from("campaigns")
           .select("*")
@@ -97,25 +97,36 @@ export function CampaignsManager() {
         supabase
           .from("company_campaign_links")
           .select("id, campaign_id, company_id, company:company_id (name, logo_url)"),
+        supabase
+          .from("companies")
+          .select("id, name, logo_url"),
         supabase.rpc("get_campaign_response_counts", {}),
       ]);
 
       if (campaignsRes.error) throw campaignsRes.error;
       if (linksRes.error) throw linksRes.error;
+      if (companiesRes.error) throw companiesRes.error;
       if (countsRes.error) throw countsRes.error;
 
-        const data = campaignsRes.data || [];
-        const links = linksRes.data || [];
-        setCampaigns(
-          data.map((c) => {
-            const survey = normalizeCampaignSurvey(c.questions);
+      const data = campaignsRes.data || [];
+      const links = linksRes.data || [];
+      const companies = (companiesRes.data || []) as Array<{
+        id: string;
+        name: string;
+        logo_url: string | null;
+      }>;
 
-            return {
-              ...c,
-              campaign_type: c.campaign_type as Campaign["campaign_type"],
-              sections: survey.sections,
-              questions: survey.questions,
-            };
+      setCampaigns(
+        data.map((c) => {
+          const survey = normalizeCampaignSurvey(c.questions);
+
+          return {
+            ...c,
+            company_id: c.company_id,
+            campaign_type: c.campaign_type as Campaign["campaign_type"],
+            sections: survey.sections,
+            questions: survey.questions,
+          };
         }),
       );
 
@@ -123,6 +134,19 @@ export function CampaignsManager() {
         string,
         { companyId: string; companyName: string; logoUrl: string | null }
       > = {};
+
+      data.forEach((campaign) => {
+        if (!campaign.company_id) return;
+        const company = companies.find((candidate) => candidate.id === campaign.company_id);
+        if (!company) return;
+
+        campaignCompanyMap[campaign.id] = {
+          companyId: company.id,
+          companyName: company.name,
+          logoUrl: company.logo_url,
+        };
+      });
+
       links.forEach((link) => {
         if (!campaignCompanyMap[link.campaign_id]) {
           campaignCompanyMap[link.campaign_id] = {
@@ -236,7 +260,7 @@ export function CampaignsManager() {
       campaignId: campaign.id,
       creationMode: "guided_buddy",
       campaignType: campaign.campaign_type,
-      selectedCompanyId: campaignCompany?.companyId || "",
+      selectedCompanyId: campaign.company_id || campaignCompany?.companyId || "",
       selectedCompanyName: campaignCompany?.companyName || "",
       name: campaign.name,
       description: campaign.description || "",
