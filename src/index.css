@@ -266,48 +266,48 @@
 
   .warm-feedback-bg {
     background:
-      radial-gradient(circle at 8% 8%, rgba(219, 135, 142, 0.24), transparent 34%),
-      radial-gradient(circle at 92% 14%, rgba(195, 120, 128, 0.2), transparent 30%),
-      radial-gradient(circle at 50% 100%, rgba(168, 103, 111, 0.18), transparent 42%),
-      linear-gradient(180deg, #e7cfd0 0%, #ddc0c3 52%, #d3b0b6 100%);
+      radial-gradient(circle at 10% 10%, rgba(133, 192, 235, 0.2), transparent 34%),
+      radial-gradient(circle at 92% 14%, rgba(150, 205, 244, 0.18), transparent 30%),
+      radial-gradient(circle at 50% 100%, rgba(124, 174, 223, 0.16), transparent 42%),
+      linear-gradient(180deg, #edf6ff 0%, #e3f0fc 52%, #d8e9fa 100%);
   }
 
   .warm-feedback-header {
-    @apply border border-amber-200/70;
-    background: linear-gradient(180deg, rgba(255, 245, 245, 0.94) 0%, rgba(247, 229, 232, 0.97) 100%);
+    @apply border border-sky-200/80;
+    background: linear-gradient(180deg, rgba(251, 254, 255, 0.96) 0%, rgba(237, 246, 255, 0.98) 100%);
     box-shadow:
-      0 14px 36px rgba(145, 83, 98, 0.18),
+      0 14px 36px rgba(78, 127, 173, 0.16),
       inset 0 1px 0 rgba(255, 255, 255, 0.72);
   }
 
   .warm-question-card {
-    @apply border-2 border-amber-300/85;
-    background: linear-gradient(180deg, rgba(255, 246, 246, 0.95) 0%, rgba(246, 232, 235, 0.98) 100%);
+    @apply border-2 border-sky-200/90;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.97) 0%, rgba(240, 248, 255, 0.98) 100%);
     box-shadow:
-      0 10px 24px rgba(145, 83, 98, 0.14),
-      inset 0 0 0 1px rgba(247, 219, 224, 0.8);
+      0 10px 24px rgba(78, 127, 173, 0.11),
+      inset 0 0 0 1px rgba(214, 234, 252, 0.9);
   }
 
   .warm-question-card:hover {
     box-shadow:
-      0 14px 28px rgba(145, 83, 98, 0.2),
-      inset 0 0 0 1px rgba(226, 176, 186, 0.95);
+      0 14px 28px rgba(78, 127, 173, 0.16),
+      inset 0 0 0 1px rgba(164, 205, 239, 0.95);
   }
 
   .feedback-section-card {
-    @apply rounded-2xl border-2 border-rose-300/90;
-    background: linear-gradient(180deg, rgba(255, 241, 242, 0.98) 0%, rgba(247, 223, 228, 0.98) 100%);
+    @apply rounded-2xl border-[3px] border-sky-500/90;
+    background: linear-gradient(180deg, rgba(233, 245, 255, 0.99) 0%, rgba(214, 235, 252, 0.99) 100%);
     box-shadow:
-      0 14px 30px rgba(145, 83, 98, 0.18),
-      inset 0 0 0 1px rgba(241, 184, 196, 0.92);
+      0 16px 34px rgba(54, 110, 163, 0.18),
+      inset 0 0 0 1px rgba(138, 191, 236, 0.88);
   }
 
   .feedback-section-title {
-    @apply text-xl font-bold tracking-tight text-foreground;
+    @apply text-xl font-extrabold tracking-tight text-slate-900;
   }
 
   .feedback-section-description {
-    @apply text-sm font-medium leading-6 text-slate-700;
+    @apply text-sm font-semibold leading-6 text-slate-700;
   }
 
   .admin-theme {
