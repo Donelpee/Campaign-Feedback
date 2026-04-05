@@ -37,6 +37,7 @@ import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock, Building2 } from "l
 import type { WizardData } from "./campaign-wizard/CampaignWizard";
 import type { Campaign } from "@/lib/supabase-types";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import { formatDateOnly, parseDateOnlyEnd, parseDateOnlyStart } from "@/lib/date-utils";
 import {
   clearWizardDrafts,
   hasSavedWizardDraft,
@@ -210,9 +211,8 @@ export function CampaignsManager() {
 
   const getStatus = (startDate: string, endDate: string) => {
     const now = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    end.setHours(23, 59, 59, 999);
+    const start = parseDateOnlyStart(startDate);
+    const end = parseDateOnlyEnd(endDate);
 
     if (now < start) {
       return { label: "Upcoming", variant: "secondary" as const };
@@ -359,10 +359,10 @@ export function CampaignsManager() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {new Date(campaign.start_date).toLocaleDateString()}
+                          {formatDateOnly(campaign.start_date)}
                         </TableCell>
                         <TableCell>
-                          {new Date(campaign.end_date).toLocaleDateString()}
+                          {formatDateOnly(campaign.end_date)}
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">

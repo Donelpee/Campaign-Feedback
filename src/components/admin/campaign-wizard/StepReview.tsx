@@ -16,6 +16,7 @@ import { QuestionPreview } from "./QuestionPreview";
 import type { CreationMode } from "./CampaignWizard";
 import { cn } from "@/lib/utils";
 import { getOrderedSurveyQuestions, normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import { formatDateOnly } from "@/lib/date-utils";
 
 interface StepReviewProps {
   data: WizardData;
@@ -264,9 +265,9 @@ export function StepReview({
           <div className="flex items-center gap-4 text-sm">
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4 text-muted-foreground" />
-              <span>{new Date(data.startDate).toLocaleDateString()}</span>
+              <span>{formatDateOnly(data.startDate)}</span>
               <span className="text-muted-foreground">to</span>
-              <span>{new Date(data.endDate).toLocaleDateString()}</span>
+              <span>{formatDateOnly(data.endDate)}</span>
             </div>
           </div>
         </CardContent>

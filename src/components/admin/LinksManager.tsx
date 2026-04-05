@@ -66,6 +66,7 @@ import type {
 } from "@/lib/supabase-types";
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
+import { parseDateOnlyEnd, parseDateOnlyStart } from "@/lib/date-utils";
 
 interface LinkWithDetails extends CompanyCampaignLink {
   company: Company;
@@ -115,9 +116,8 @@ function generateUniqueCode(): string {
 
 function isCampaignActiveNow(startDate: string, endDate: string): boolean {
   const now = new Date();
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  end.setHours(23, 59, 59, 999);
+  const start = parseDateOnlyStart(startDate);
+  const end = parseDateOnlyEnd(endDate);
   return now >= start && now <= end;
 }
 

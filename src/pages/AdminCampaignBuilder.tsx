@@ -205,7 +205,7 @@ export default function AdminCampaignBuilder() {
           }
         }
 
-        const { error: updateError } = await supabase
+        const { data: updatedCampaign, error: updateError } = await supabase
           .from("campaigns")
           .update({
             name: trimmedName,
@@ -215,8 +215,13 @@ export default function AdminCampaignBuilder() {
             start_date: data.startDate,
             end_date: data.endDate,
           })
-          .eq("id", data.campaignId);
+          .eq("id", data.campaignId)
+          .select("id, end_date")
+          .maybeSingle();
         if (updateError) throw updateError;
+        if (!updatedCampaign) {
+          throw new Error("Campaign update could not be confirmed. Please refresh and try again.");
+        }
 
         toast({
           title: "Success",

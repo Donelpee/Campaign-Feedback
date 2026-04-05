@@ -38,6 +38,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
+import { parseDateOnlyEnd, parseDateOnlyStart } from "@/lib/date-utils";
 import {
   Building2,
   FileText,
@@ -469,9 +470,8 @@ export function DashboardOverview() {
     const uniqueCampaignIds = new Set(filteredLinks.map((link) => link.campaign.id));
     const activeCampaigns = filteredLinks.filter((link) => {
       const now = new Date();
-      const start = new Date(link.campaign.start_date);
-      const end = new Date(link.campaign.end_date);
-      end.setHours(23, 59, 59, 999);
+      const start = parseDateOnlyStart(link.campaign.start_date);
+      const end = parseDateOnlyEnd(link.campaign.end_date);
       return now >= start && now <= end;
     }).length;
 

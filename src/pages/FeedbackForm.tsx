@@ -64,6 +64,7 @@ import {
   isOtherOptionSelected,
   sanitizeQuestionOptions,
 } from "@/lib/campaign-answer-utils";
+import { parseDateOnlyEnd, parseDateOnlyStart } from "@/lib/date-utils";
 
 type MatrixAnswer = Record<string, string | string[]>;
 type DynamicAnswer =
@@ -98,9 +99,7 @@ interface CountdownParts {
 type FeedbackThemeStyle = CSSProperties & Record<`--${string}`, string>;
 
 function getCampaignExpiryDate(endDate: string): Date {
-  const expiry = new Date(endDate);
-  expiry.setHours(23, 59, 59, 999);
-  return expiry;
+  return parseDateOnlyEnd(endDate);
 }
 
 function getCountdownParts(endDate: string | null | undefined, currentTime: number): CountdownParts {
@@ -412,9 +411,8 @@ export default function FeedbackForm() {
       }
 
       const now = new Date();
-      const startDate = new Date(linkInfo.start_date);
-      const endDate = new Date(linkInfo.end_date);
-      endDate.setHours(23, 59, 59, 999);
+      const startDate = parseDateOnlyStart(linkInfo.start_date);
+      const endDate = parseDateOnlyEnd(linkInfo.end_date);
 
       if (!isPreviewMode && now < startDate) {
         setLoadError("This feedback campaign has not started yet.");
