@@ -68,10 +68,11 @@ import type {
 import { futureReleaseFlags } from "@/config/futureReleaseFlags";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
 import {
-  buildCampaignBriefRequests,
-  buildFallbackCampaignReportBriefs,
-  type CampaignReportBrief,
-} from "@/lib/campaign-report-briefs";
+  buildMasterCsvContent,
+  buildQuestionInfographicSummaries,
+  type ExportResponseData,
+  type ReportQuestionSummary,
+} from "@/lib/reporting-exports";
 import {
   findOtherOptionLabel,
   getOtherAnswerText,
@@ -172,13 +173,6 @@ interface CampaignSummary {
   completionRate: number;
 }
 
-interface QuestionInfographic {
-  id: string;
-  question: string;
-  type: string;
-  chartData: Array<{ label: string; value: number }>;
-}
-
 const RESPONSE_PAGE_SIZE = 50;
 
 const questionTypeLabels: Record<string, string> = {
@@ -245,6 +239,24 @@ const NEGATIVE_WORDS = [
   "frustrated",
   "unsatisfied",
 ];
+
+function getLikertLabel(value: number) {
+  const labels = [
+    "Very Unlikely",
+    "Unlikely",
+    "Neutral",
+    "Likely",
+    "Very Likely",
+  ];
+  return labels[value - 1] || "";
+}
+
+function getQuestionByType(
+  campaign: Campaign,
+  type: "scale" | "rating" | "nps" | "multiple_choice",
+) {
+  return (campaign.questions || []).find((question) => question.type === type);
+}
 
 function toNumberOrNull(value: unknown): number | null {
   const n = Number(value);
@@ -400,7 +412,8 @@ export function ResponsesViewer() {
     avgCompletion: 0,
   });
   const [campaignSummaries, setCampaignSummaries] = useState<CampaignSummary[]>([]);
-  const [questionInfographics, setQuestionInfographics] = useState<QuestionInfographic[]>([]);
+  const [questionReports, setQuestionReports] = useState<ReportQuestionSummary[]>([]);
+  const [isLoadingQuestionReports, setIsLoadingQuestionReports] = useState(false);
   const [viewerSettings, setViewerSettings] = useState<ViewerSettings>({
     compactView: false,
     showResponseTimestamps: true,
@@ -934,83 +947,6 @@ export function ResponsesViewer() {
     return exportRows;
   }, [filterCampaign, filterCompany]);
 
-  const loadCampaignReportBriefs = useCallback(
-    async (
-      exportData: Array<{
-        campaign_id: string;
-        company_id: string;
-        company_name: string;
-        campaign_name: string;
-        created_at: string;
-        satisfaction_value: number | null;
-        quality_value: number | null;
-        recommendation_score: number | null;
-        improvement_areas: string[];
-        additional_comments: string | null;
-        answers: Record<string, unknown>;
-        campaign_questions: CampaignQuestion[];
-      }>,
-      metricsByCampaign: Array<{
-        campaign_id: string;
-        company_id: string;
-        company_name: string;
-        campaign_name: string;
-        responses: number;
-        views: number;
-        response_rate: number;
-        completion_rate: number;
-        sentiment_index?: number;
-        health_score?: number;
-        risk?: string;
-      }>,
-    ): Promise<CampaignReportBrief[]> => {
-      const requests = buildCampaignBriefRequests(exportData, metricsByCampaign);
-      const fallbackBriefs = buildFallbackCampaignReportBriefs(requests);
-
-      if (requests.length === 0) {
-        return fallbackBriefs;
-      }
-
-      try {
-        const { data, error } = await supabase.functions.invoke(
-          "generate-campaign-report-briefs",
-          {
-            body: { campaigns: requests },
-          },
-        );
-
-        if (error) {
-          console.error("Error generating campaign report briefs:", error);
-          return fallbackBriefs;
-        }
-
-        const remoteBriefs = Array.isArray(
-          (data as { briefs?: unknown } | null)?.briefs,
-        )
-          ? ((data as { briefs: CampaignReportBrief[] }).briefs || [])
-          : [];
-
-        if (remoteBriefs.length === 0) {
-          return fallbackBriefs;
-        }
-
-        const remoteByCampaignId = new Map(
-          remoteBriefs
-            .filter((brief) => brief && typeof brief.campaignId === "string")
-            .map((brief) => [brief.campaignId, brief]),
-        );
-
-        return fallbackBriefs.map(
-          (brief) => remoteByCampaignId.get(brief.campaignId) || brief,
-        );
-      } catch (error) {
-        console.error("Unexpected campaign brief generation error:", error);
-        return fallbackBriefs;
-      }
-    },
-    [],
-  );
-
   const handleExportCSV = () => {
     if (totalResponsesCount === 0) {
       toast({
@@ -1023,104 +959,18 @@ export function ResponsesViewer() {
     setIsExporting(true);
     loadAllResponsesForExport()
       .then((exportResponses) => {
-        const headers = [
-          "Company",
-          "Campaign",
-          "Overall Satisfaction",
-          "Service Quality",
-          "Recommendation",
-          "Improvement Areas",
-          "Comments",
-          "Date",
-        ];
-        const rows = exportResponses.map((r) => {
-          const metrics = getDisplayMetrics(r);
-          const shownAreas =
-            metrics.dynamicAreas.length > 0
-              ? metrics.dynamicAreas
-              : r.improvement_areas || [];
-          return [
-            r.link.company.name,
-            r.link.campaign.name,
-            metrics.satisfactionValue !== null
-              ? `${metrics.satisfactionValue}/${metrics.satisfactionMax}`
-              : `${r.overall_satisfaction}/10`,
-            metrics.qualityValue !== null
-              ? `${metrics.qualityValue}/${metrics.qualityMax}`
-              : `${r.service_quality}/5`,
-            metrics.npsValue !== null
-              ? `${Math.round(metrics.npsValue)}/10`
-              : getLikertLabel(r.recommendation_likelihood),
-            shownAreas.map((a) => areaLabels[a] || a).join("; "),
-            r.additional_comments || "",
-            new Date(r.created_at).toLocaleString(),
-          ];
-        });
-
-        const campaignRows = campaignSummaries.map((campaign) => [
-          campaign.campaignName,
-          campaign.responses,
-          campaign.views,
-          campaign.responseRate.toFixed(1),
-          campaign.completionRate.toFixed(1),
-        ]);
-
-        const questionRows: Array<(string | number)[]> = [];
-        if (filterCampaign !== "all") {
-          questionInfographics.forEach((question) => {
-            question.chartData.forEach((entry) => {
-              questionRows.push([
-                selectedCampaignName || "Selected Campaign",
-                question.question,
-                question.type,
-                question.type === "single_choice" ||
-                question.type === "multiple_choice" ||
-                question.type === "combobox" ||
-                question.type === "radio_matrix" ||
-                question.type === "checkbox_matrix"
-                  ? "pie"
-                  : "bar",
-                entry.label,
-                entry.value,
-              ]);
-            });
-          });
-        }
-
-        const csv = [
-          ["RAW RESPONSES"],
-          headers,
-          ...rows,
-          [""],
-          ["CAMPAIGN KPI DATA (FOR INFOGRAPHICS)"],
-          ["Campaign", "Responses", "Views", "Response Rate %", "Completion %"],
-          ...campaignRows,
-          [""],
-          ["QUESTION DISTRIBUTION DATA (FOR INFOGRAPHICS)"],
-          ["Campaign", "Question", "Type", "Chart Type", "Answer Option/Value", "Count"],
-          ...questionRows,
-        ]
-          .map((row) =>
-            row
-              .map((cell) => {
-                const str = String(cell);
-                if (str.includes(",") || str.includes('"') || str.includes("\n"))
-                  return `"${str.replace(/"/g, '""')}"`;
-                return str;
-              })
-              .join(","),
-          )
-          .join("\n");
+        const exportData = buildExportData(exportResponses);
+        const { csv } = buildMasterCsvContent(exportData);
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `feedback-responses-${new Date().toISOString().split("T")[0]}.csv`;
+        a.download = `feedback-master-report-${new Date().toISOString().split("T")[0]}.csv`;
         a.click();
         URL.revokeObjectURL(url);
         toast({
           title: "Success",
-          description: "CSV file downloaded successfully.",
+          description: "Master CSV report downloaded successfully.",
         });
       })
       .catch((error) => {
@@ -1128,7 +978,7 @@ export function ResponsesViewer() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: "Failed to generate CSV report.",
+          description: "Failed to generate the master CSV report.",
         });
       })
       .finally(() => {
@@ -1148,68 +998,14 @@ export function ResponsesViewer() {
     setIsExporting(true);
     try {
       const exportResponses = await loadAllResponsesForExport();
-      const data = exportResponses.map((r) => {
-        const metrics = getDisplayMetrics(r);
-        return {
-          id: r.id,
-          company_id: r.link.company.id,
-          campaign_id: r.link.campaign.id,
-          company_name: r.link.company.name,
-          campaign_name: r.link.campaign.name,
-          created_at: r.created_at,
-          satisfaction_value: metrics.satisfactionValue,
-          satisfaction_max: metrics.satisfactionMax,
-          quality_value: metrics.qualityValue,
-          quality_max: metrics.qualityMax,
-          recommendation_score: metrics.npsValue,
-          recommendation_text:
-            metrics.npsValue !== null
-              ? `${Math.round(metrics.npsValue)}/10`
-              : getLikertLabel(r.recommendation_likelihood),
-          improvement_areas:
-            metrics.dynamicAreas.length > 0
-              ? metrics.dynamicAreas
-              : r.improvement_areas || [],
-          additional_comments: r.additional_comments,
-          answers: (r.answers || {}) as Record<string, unknown>,
-          campaign_questions: r.link.campaign.questions || [],
-        };
-      });
-
-      const metricsByCampaign = campaignSummaries.map((campaign) => {
-        const representativeResponse = exportResponses.find(
-          (response) => response.link.campaign.id === campaign.campaignId,
-        );
-        const matchingHealth = campaignHealthRows.find(
-          (row) => row.campaignId === campaign.campaignId,
-        );
-        const matchingLink = links.find((link) => link.campaign_id === campaign.campaignId);
-
-        return {
-          campaign_id: campaign.campaignId,
-          company_id:
-            representativeResponse?.link.company.id ||
-            matchingLink?.company_id ||
-            "",
-          company_name: campaign.companyName,
-          campaign_name: campaign.campaignName,
-          responses: campaign.responses,
-          views: campaign.views,
-          response_rate: campaign.responseRate,
-          completion_rate: campaign.completionRate,
-          sentiment_index: matchingHealth?.sentimentIndex,
-          health_score: matchingHealth?.healthScore,
-          risk: matchingHealth?.risk,
-        };
-      });
-
-      const campaignBriefs = await loadCampaignReportBriefs(data, metricsByCampaign);
+      const data = buildExportData(exportResponses);
+      const metricsByCampaign = buildMetricsByCampaign(exportResponses);
 
       const { exportToExcel } = await import("@/lib/excel-export");
       await exportToExcel(
         data,
         metricsByCampaign,
-        campaignBriefs,
+        [],
         {
           periodDelta: {
             currentResponses: futureReleaseFlags.phase3To5AdvancedExportInsights
@@ -1269,7 +1065,7 @@ export function ResponsesViewer() {
       );
       toast({
         title: "Success",
-        description: "Excel report with campaign briefs downloaded successfully.",
+        description: "Excel report downloaded successfully.",
       });
     } catch (error) {
       console.error("Error exporting to Excel:", error);
@@ -1277,6 +1073,99 @@ export function ResponsesViewer() {
         variant: "destructive",
         title: "Error",
         description: "Failed to generate Excel report.",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (totalResponsesCount === 0) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No responses to export.",
+      });
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const exportResponses = await loadAllResponsesForExport();
+      const data = buildExportData(exportResponses);
+      const metricsByCampaign = buildMetricsByCampaign(exportResponses);
+      const { exportToPdf } = await import("@/lib/pdf-export");
+      await exportToPdf(
+        data,
+        metricsByCampaign,
+        [],
+        {
+          periodDelta: {
+            currentResponses: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? periodDelta.currentCount
+              : 0,
+            previousResponses: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? periodDelta.previousCount
+              : 0,
+            deltaPercent: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? periodDelta.deltaPercent
+              : 0,
+          },
+          benchmark: futureReleaseFlags.phase3To5AdvancedExportInsights && benchmarkInsight
+            ? {
+                selectedRate: benchmarkInsight.selectedRate,
+                benchmarkRate: benchmarkInsight.peerRate,
+                gapPercent: benchmarkInsight.gap,
+              }
+            : null,
+          sentiment: {
+            scoreIndex: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? sentimentInsight.scoreIndex
+              : 0,
+            positive: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? sentimentInsight.positive
+              : 0,
+            neutral: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? sentimentInsight.neutral
+              : 0,
+            negative: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? sentimentInsight.negative
+              : 0,
+          },
+          forecast: {
+            next7Responses: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? forecastInsight.next7
+              : 0,
+            dailyAverage: futureReleaseFlags.phase3To5AdvancedExportInsights
+              ? forecastInsight.dailyAverage
+              : 0,
+          },
+          campaignHealth: futureReleaseFlags.phase3To5AdvancedExportInsights
+            ? campaignHealthRows.map((row) => ({
+                campaignName: row.campaignName,
+                responseRate: row.responseRate,
+                completionRate: row.completionRate,
+                sentimentIndex: row.sentimentIndex,
+                healthScore: row.healthScore,
+                risk: row.risk,
+              }))
+            : [],
+          recommendations: futureReleaseFlags.phase3To5AdvancedExportInsights
+            ? recommendations
+            : [],
+        },
+        `feedback-report-${new Date().toISOString().split("T")[0]}.pdf`,
+      );
+      toast({
+        title: "Success",
+        description: "PDF report downloaded successfully.",
+      });
+    } catch (error) {
+      console.error("Error exporting to PDF:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to generate PDF report.",
       });
     } finally {
       setIsExporting(false);
@@ -1294,23 +1183,7 @@ export function ResponsesViewer() {
     </div>
   );
 
-  const getLikertLabel = (value: number) => {
-    const labels = [
-      "Very Unlikely",
-      "Unlikely",
-      "Neutral",
-      "Likely",
-      "Very Likely",
-    ];
-    return labels[value - 1] || "";
-  };
-
-  const getQuestionByType = (
-    campaign: Campaign,
-    type: "scale" | "rating" | "nps" | "multiple_choice",
-  ) => (campaign.questions || []).find((q) => q.type === type);
-
-  const getDisplayMetrics = (response: ResponseWithDetails) => {
+  const getDisplayMetrics = useCallback((response: ResponseWithDetails) => {
     const campaign = response.link.campaign;
     const answers = (response.answers || {}) as Record<string, unknown>;
 
@@ -1359,7 +1232,70 @@ export function ResponsesViewer() {
       npsValue,
       dynamicAreas,
     };
-  };
+  }, []);
+
+  const buildExportData = useCallback(
+    (exportResponses: ResponseWithDetails[]): ExportResponseData[] =>
+      exportResponses.map((response) => {
+        const metrics = getDisplayMetrics(response);
+        return {
+          id: response.id,
+          company_id: response.link.company.id,
+          campaign_id: response.link.campaign.id,
+          company_name: response.link.company.name,
+          campaign_name: response.link.campaign.name,
+          created_at: response.created_at,
+          satisfaction_value: metrics.satisfactionValue,
+          satisfaction_max: metrics.satisfactionMax,
+          quality_value: metrics.qualityValue,
+          quality_max: metrics.qualityMax,
+          recommendation_score: metrics.npsValue,
+          recommendation_text:
+            metrics.npsValue !== null
+              ? `${Math.round(metrics.npsValue)}/10`
+              : getLikertLabel(response.recommendation_likelihood),
+          improvement_areas:
+            metrics.dynamicAreas.length > 0
+              ? metrics.dynamicAreas
+              : response.improvement_areas || [],
+          additional_comments: response.additional_comments,
+          answers: (response.answers || {}) as Record<string, unknown>,
+          campaign_questions: response.link.campaign.questions || [],
+        };
+      }),
+    [getDisplayMetrics],
+  );
+
+  const buildMetricsByCampaign = useCallback(
+    (exportResponses: ResponseWithDetails[]) =>
+      campaignSummaries.map((campaign) => {
+        const representativeResponse = exportResponses.find(
+          (response) => response.link.campaign.id === campaign.campaignId,
+        );
+        const matchingHealth = campaignHealthRows.find(
+          (row) => row.campaignId === campaign.campaignId,
+        );
+        const matchingLink = links.find((link) => link.campaign_id === campaign.campaignId);
+
+        return {
+          campaign_id: campaign.campaignId,
+          company_id:
+            representativeResponse?.link.company.id ||
+            matchingLink?.company_id ||
+            "",
+          company_name: campaign.companyName,
+          campaign_name: campaign.campaignName,
+          responses: campaign.responses,
+          views: campaign.views,
+          response_rate: campaign.responseRate,
+          completion_rate: campaign.completionRate,
+          sentiment_index: matchingHealth?.sentimentIndex,
+          health_score: matchingHealth?.healthScore,
+          risk: matchingHealth?.risk,
+        };
+      }),
+    [campaignHealthRows, campaignSummaries, links],
+  );
 
   const selectedCompanyName =
     filterCompany === "all"
@@ -1377,34 +1313,36 @@ export function ResponsesViewer() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadQuestionInfographics = async () => {
+    const loadQuestionReports = async () => {
       if (!selectedCampaignForInsights) {
-        setQuestionInfographics([]);
+        setQuestionReports([]);
         return;
       }
 
-      const { data, error } = await supabase.rpc("get_feedback_question_infographics", {
-        p_campaign_id: selectedCampaignForInsights.id,
-        p_company_id: filterCompany === "all" ? null : filterCompany,
-      });
+      setIsLoadingQuestionReports(true);
+      try {
+        const exportResponses = await loadAllResponsesForExport();
+        if (cancelled) return;
 
-      if (cancelled) return;
-
-      if (error) {
-        console.error("Error loading question infographics:", error);
-        setQuestionInfographics([]);
-        return;
+        const exportData = buildExportData(exportResponses);
+        setQuestionReports(buildQuestionInfographicSummaries(exportData));
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Error loading question reports:", error);
+        setQuestionReports([]);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingQuestionReports(false);
+        }
       }
-
-      setQuestionInfographics((data || []) as QuestionInfographic[]);
     };
 
-    loadQuestionInfographics();
+    void loadQuestionReports();
 
     return () => {
       cancelled = true;
     };
-  }, [filterCompany, selectedCampaignForInsights]);
+  }, [buildExportData, loadAllResponsesForExport, selectedCampaignForInsights]);
 
   const formatResponseDate = (dateValue: string) =>
     viewerSettings.showResponseTimestamps
@@ -2029,16 +1967,23 @@ export function ResponsesViewer() {
               <p className="text-sm text-muted-foreground">
                 Pick a campaign to view Age/Sex and other question distributions.
               </p>
-            ) : questionInfographics.every((item) => item.chartData.length === 0) ? (
+            ) : isLoadingQuestionReports ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+              </div>
+            ) : questionReports.every(
+                (item) => item.chartData.length === 0 && item.textInsights.length === 0,
+              ) ? (
               <p className="text-sm text-muted-foreground">
                 No question-level data yet for this campaign.
               </p>
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
-                {questionInfographics
-                  .filter((item) => item.chartData.length > 0)
+                {questionReports
+                  .filter((item) => item.chartData.length > 0 || item.textInsights.length > 0)
                   .map((item) => {
                     const isChoice =
+                      item.chartType === "pie" ||
                       item.type === "single_choice" ||
                       item.type === "multiple_choice" ||
                       item.type === "combobox" ||
@@ -2046,49 +1991,112 @@ export function ResponsesViewer() {
                       item.type === "checkbox_matrix";
                     const pieData = item.chartData.filter((entry) => entry.value > 0);
                     return (
-                      <div key={item.id} className="rounded-lg border p-3">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium">{item.question}</p>
+                      <div key={item.id} className="rounded-2xl border border-primary/10 bg-gradient-to-br from-background via-background to-primary/5 p-4 shadow-sm">
+                        <div className="mb-3 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold">{item.question}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {item.answeredCount}/{item.totalResponses} answered |{" "}
+                              {item.answerRate.toFixed(1)}% completion
+                              {item.averageValue !== null
+                                ? ` | Avg ${item.averageValue.toFixed(1)}`
+                                : ""}
+                            </p>
+                          </div>
                           <Badge variant="outline" className="capitalize">
                             {item.type.replace("_", " ")}
                           </Badge>
                         </div>
-                        <ResponsiveContainer width="100%" height={240}>
-                          {isChoice ? (
-                            <PieChart>
-                              <Pie
-                                data={pieData}
-                                dataKey="value"
-                                nameKey="label"
-                                cx="50%"
-                                cy="50%"
-                                outerRadius={80}
-                                label={({ percent }) =>
-                                  percent && percent > 0
-                                    ? `${(percent * 100).toFixed(0)}%`
-                                    : ""
-                                }
-                              >
-                                {pieData.map((entry, index) => (
-                                  <Cell
-                                    key={`${entry.label}-${index}`}
-                                    fill={CHART_COLORS[index % CHART_COLORS.length]}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip />
-                              <Legend />
-                            </PieChart>
-                          ) : (
-                            <BarChart data={item.chartData}>
-                              <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                              <XAxis dataKey="label" className="text-xs" />
-                              <YAxis allowDecimals={false} className="text-xs" />
-                              <Tooltip />
-                              <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                            </BarChart>
+                        <div className="mb-4 flex flex-wrap gap-2">
+                          <div className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                            Answered: {item.answeredCount}
+                          </div>
+                          <div className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                            Skipped: {item.skippedCount}
+                          </div>
+                          {item.topResponse && (
+                            <div className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-700">
+                              Top: {item.topResponse}
+                            </div>
                           )}
-                        </ResponsiveContainer>
+                        </div>
+                        {item.chartData.length > 0 ? (
+                          <ResponsiveContainer width="100%" height={240}>
+                            {isChoice ? (
+                              <PieChart>
+                                <Pie
+                                  data={pieData}
+                                  dataKey="value"
+                                  nameKey="label"
+                                  cx="50%"
+                                  cy="50%"
+                                  outerRadius={80}
+                                  label={({ percent }) =>
+                                    percent && percent > 0
+                                      ? `${(percent * 100).toFixed(0)}%`
+                                      : ""
+                                  }
+                                >
+                                  {pieData.map((entry, index) => (
+                                    <Cell
+                                      key={`${entry.label}-${index}`}
+                                      fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                    />
+                                  ))}
+                                </Pie>
+                                <Tooltip />
+                                <Legend />
+                              </PieChart>
+                            ) : (
+                              <BarChart data={item.chartData}>
+                                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                                <XAxis dataKey="label" className="text-xs" />
+                                <YAxis allowDecimals={false} className="text-xs" />
+                                <Tooltip />
+                                <Bar dataKey="value" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                            )}
+                          </ResponsiveContainer>
+                        ) : (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                            Narrative responses are available below for this question.
+                          </div>
+                        )}
+
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">
+                            Highlights
+                          </p>
+                          <p className="text-sm text-foreground">
+                            {item.responseSummary}
+                          </p>
+                          {item.optionStats.slice(0, 4).map((option) => (
+                            <div key={`${item.id}-${option.label}`} className="space-y-1">
+                              <div className="flex items-center justify-between gap-3 text-xs">
+                                <span className="truncate font-medium text-foreground">
+                                  {option.label}
+                                </span>
+                                <span className="shrink-0 text-muted-foreground">
+                                  {option.value} ({option.percentage.toFixed(1)}%)
+                                </span>
+                              </div>
+                              <div className="h-2 overflow-hidden rounded-full bg-muted">
+                                <div
+                                  className="h-full rounded-full bg-primary"
+                                  style={{ width: `${Math.min(option.percentage, 100)}%` }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                          {item.textInsights.slice(0, 3).map((insight) => (
+                            <div
+                              key={`${item.id}-${insight.responseId}-${insight.type}`}
+                              className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
+                            >
+                              {insight.value}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     );
                   })}
@@ -2110,14 +2118,27 @@ export function ResponsesViewer() {
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-                <Button
-                  onClick={handleExportCSV}
-                  size="sm"
-                  disabled={isExporting || totalResponsesCount === 0}
-                >
-                  <Download className="mr-2 h-4 w-4" />
-                  CSV
-                </Button>
+              <Button
+                onClick={handleExportCSV}
+                size="sm"
+                disabled={isExporting || totalResponsesCount === 0}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                CSV
+              </Button>
+              <Button
+                onClick={handleExportPDF}
+                size="sm"
+                disabled={isExporting || totalResponsesCount === 0}
+                variant="outline"
+              >
+                {isExporting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="mr-2 h-4 w-4" />
+                )}
+                PDF
+              </Button>
               <Button
                 onClick={handleExportExcel}
                 size="sm"

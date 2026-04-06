@@ -120,6 +120,9 @@ function getCountdownParts(endDate: string | null | undefined, currentTime: numb
 }
 
 const FEEDBACK_RESPONDER_SESSION_KEY = "feedback-responder-session-id";
+const FEEDBACK_SUBMISSION_COOLDOWN_MINUTES = 5;
+const FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE = "Please try again after 5 minutes";
+const FEEDBACK_SUBMISSION_COOLDOWN_PREFIX = "feedback-submission-cooldown:";
 
 function getFeedbackResponderSessionId(): string | null {
   if (typeof window === "undefined") return null;
@@ -135,6 +138,42 @@ function getFeedbackResponderSessionId(): string | null {
     return nextValue;
   } catch {
     return null;
+  }
+}
+
+function getFeedbackSubmissionCooldownKey(code: string) {
+  return `${FEEDBACK_SUBMISSION_COOLDOWN_PREFIX}${code}`;
+}
+
+function getActiveFeedbackSubmissionCooldown(code: string): number | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawValue = window.localStorage.getItem(getFeedbackSubmissionCooldownKey(code));
+    if (!rawValue) return null;
+
+    const expiresAt = Number(rawValue);
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+      window.localStorage.removeItem(getFeedbackSubmissionCooldownKey(code));
+      return null;
+    }
+
+    return expiresAt;
+  } catch {
+    return null;
+  }
+}
+
+function setFeedbackSubmissionCooldown(code: string, minutes = FEEDBACK_SUBMISSION_COOLDOWN_MINUTES) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(
+      getFeedbackSubmissionCooldownKey(code),
+      String(Date.now() + minutes * 60 * 1000),
+    );
+  } catch {
+    // Ignore local storage failures; the backend cooldown still applies.
   }
 }
 
@@ -320,6 +359,7 @@ export default function FeedbackForm() {
     additional_comments: "",
   });
   const isPreviewMode = searchParams.get("preview") === "1";
+  const isCooldownBlocked = loadError === FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE;
 
   const getOtherDetails = useCallback(
     (questionId: string) => String(dynamicAnswers[getOtherAnswerKey(questionId)] ?? ""),
@@ -398,6 +438,14 @@ export default function FeedbackForm() {
 
   const loadLinkData = useCallback(async () => {
     try {
+      if (!code) return;
+
+      if (!isPreviewMode && getActiveFeedbackSubmissionCooldown(code)) {
+        setLoadError(FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE);
+        setIsLoading(false);
+        return;
+      }
+
       const { data, error } = await supabase.rpc("get_feedback_link_data", {
         p_code: code!,
       });
@@ -456,6 +504,7 @@ export default function FeedbackForm() {
       setCurrentSectionIndex(0);
       setSectionHistory([]);
       setPendingTargetQuestionId(null);
+      setLoadError(null);
       setIsLoading(false);
     } catch (err) {
       console.error("Error loading link data:", err);
@@ -805,6 +854,7 @@ export default function FeedbackForm() {
 
       if (error) throw error;
 
+      setFeedbackSubmissionCooldown(code);
       setIsSubmitted(true);
     } catch (err) {
       console.error("Error submitting feedback:", err);
@@ -815,6 +865,9 @@ export default function FeedbackForm() {
             typeof errorBody?.error === "string" && errorBody.error.trim()
               ? errorBody.error
               : "Failed to submit your feedback. Please try again.";
+          if (errorMessage === FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE) {
+            setFeedbackSubmissionCooldown(code);
+          }
           setSubmitError(errorMessage);
           return;
         } catch {
@@ -972,7 +1025,7 @@ export default function FeedbackForm() {
             <div className="text-center">
               <AlertCircle className="h-12 w-12 mx-auto text-destructive" />
               <h2 className="mt-4 text-xl font-semibold text-foreground">
-                Unable to Load Form
+                {isCooldownBlocked ? "Please Wait" : "Unable to Load Form"}
               </h2>
               <p className="mt-2 text-muted-foreground">{loadError}</p>
               <Button

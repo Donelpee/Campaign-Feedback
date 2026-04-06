@@ -48,6 +48,9 @@ declare const EdgeRuntime:
     }
   | undefined;
 
+const SUBMISSION_COOLDOWN_MINUTES = 5;
+const SUBMISSION_COOLDOWN_ERROR = "Please try again after 5 minutes";
+
 function jsonResponse(status: number, body: unknown) {
   return new Response(JSON.stringify(body), {
     status,
@@ -221,6 +224,34 @@ async function enforceRateLimitWithClient(
   }
 
   return true;
+}
+
+async function hasRecentSuccessfulSubmission(
+  code: string,
+  ipFingerprint: string,
+  clientFingerprint: string | null,
+) {
+  const cooldownWindow = new Date(
+    Date.now() - SUBMISSION_COOLDOWN_MINUTES * 60 * 1000,
+  ).toISOString();
+
+  if (clientFingerprint) {
+    const recentClientSubmission = await postgrest<Array<{ id: string }>>(
+      `feedback_submission_attempts?select=id&client_fingerprint=eq.${clientFingerprint}&link_code=eq.${encodeURIComponent(code)}&attempt_status=eq.submitted&attempted_at=gte.${encodeURIComponent(cooldownWindow)}&limit=1`,
+      { method: "GET" },
+    );
+
+    if (recentClientSubmission.length > 0) {
+      return true;
+    }
+  }
+
+  const recentIpSubmission = await postgrest<Array<{ id: string }>>(
+    `feedback_submission_attempts?select=id&ip_fingerprint=eq.${ipFingerprint}&link_code=eq.${encodeURIComponent(code)}&attempt_status=eq.submitted&attempted_at=gte.${encodeURIComponent(cooldownWindow)}&limit=1`,
+    { method: "GET" },
+  );
+
+  return recentIpSubmission.length > 0;
 }
 
 async function recordSubmissionAttempt(
@@ -436,6 +467,21 @@ Deno.serve(async (request) => {
     const sessionFingerprint = clientSessionId
       ? await sha256Hex(`session:${clientSessionId}`)
       : null;
+    const isWithinCooldown = await hasRecentSuccessfulSubmission(
+      code,
+      ipFingerprint,
+      sessionFingerprint,
+    );
+    if (isWithinCooldown) {
+      await recordSubmissionAttempt(
+        code,
+        ipFingerprint,
+        sessionFingerprint,
+        "rate_limited",
+      );
+      return jsonResponse(429, { error: SUBMISSION_COOLDOWN_ERROR });
+    }
+
     const withinLimit = await enforceRateLimitWithClient(
       code,
       ipFingerprint,
