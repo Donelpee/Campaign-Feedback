@@ -19,6 +19,7 @@ playwright-report
 test-results
 load-test-results
 supabase/.temp/
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*
