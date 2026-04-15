@@ -11,11 +11,14 @@ node_modules
 dist
 dist-ssr
 *.local
+scripts/load/*.local.json
 .env
 .env.*
 !.env.example
 playwright-report
 test-results
+load-test-results
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

@@ -17,7 +17,9 @@ import AdminAuditLogs from "./pages/AdminAuditLogs";
 import AdminUsers from "./pages/AdminUsers";
 import AdminSettings from "./pages/AdminSettings";
 import AdminNotifications from "./pages/AdminNotifications";
+import AdminMonitoring from "./pages/AdminMonitoring";
 import NotFound from "./pages/NotFound";
+import { AppErrorMonitor } from "@/components/AppErrorMonitor";
 
 const queryClient = new QueryClient();
 
@@ -26,6 +28,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <AppErrorMonitor />
       <BrowserRouter>
         <AuthProvider>
           <Routes>
@@ -40,6 +43,7 @@ const App = () => (
             <Route path="/admin/responses" element={<AdminResponses />} />
             <Route path="/admin/audit-logs" element={<AdminAuditLogs />} />
             <Route path="/admin/notifications" element={<AdminNotifications />} />
+            <Route path="/admin/monitoring" element={<AdminMonitoring />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/settings" element={<AdminSettings />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

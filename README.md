@@ -87,3 +87,26 @@ supabase secrets set OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
 If no AI secret is configured or provider calls fail, the app automatically falls back to local heuristic generation.
+
+## Load testing and production-readiness checks
+
+This repo includes repeatable load-test scripts for high-volume validation before going live:
+
+```sh
+# Public feedback submission path
+npm run load:submit -- scripts/load/submit-feedback-load.config.example.json
+
+# Admin dashboard read pressure
+npm run load:admin -- scripts/load/admin-read-load.config.example.json
+```
+
+Important notes:
+
+- `load:submit` supports two modes:
+  - `public_edge`: exercises the real public Edge Function and anti-abuse protections.
+  - `service_rpc`: staging-only throughput validation that bypasses browser/IP cooldown behavior so you can validate write capacity at scale.
+- Public-edge mode needs enough unique active link codes. If you try to submit many requests through one code from one machine, the app is expected to rate-limit those requests.
+- `load:admin` requires a valid authenticated admin JWT in `LOAD_TEST_ADMIN_JWT`.
+- Both scripts write JSON reports to `load-test-results/`.
+
+Use these with the detailed runbook in `docs/load-testing.md`.

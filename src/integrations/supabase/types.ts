@@ -319,6 +319,8 @@ export type Database = {
           overall_satisfaction: number;
           recommendation_likelihood: number;
           service_quality: number;
+          submission_payload_hash: string | null;
+          submission_token: string | null;
         };
         Insert: {
           additional_comments?: string | null;
@@ -330,6 +332,8 @@ export type Database = {
           overall_satisfaction: number;
           recommendation_likelihood: number;
           service_quality: number;
+          submission_payload_hash?: string | null;
+          submission_token?: string | null;
         };
         Update: {
           additional_comments?: string | null;
@@ -341,10 +345,85 @@ export type Database = {
           overall_satisfaction?: number;
           recommendation_likelihood?: number;
           service_quality?: number;
+          submission_payload_hash?: string | null;
+          submission_token?: string | null;
         };
         Relationships: [
           {
             foreignKeyName: "feedback_responses_link_id_fkey";
+            columns: ["link_id"];
+            isOneToOne: false;
+            referencedRelation: "company_campaign_links";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      system_health_events: {
+        Row: {
+          area: string;
+          campaign_id: string | null;
+          company_id: string | null;
+          created_at: string;
+          event_type: string;
+          fingerprint: string;
+          id: string;
+          link_id: string | null;
+          message: string;
+          metadata: Json;
+          route: string | null;
+          severity: string;
+          source: string;
+          status_code: number | null;
+        };
+        Insert: {
+          area: string;
+          campaign_id?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          event_type: string;
+          fingerprint: string;
+          id?: string;
+          link_id?: string | null;
+          message: string;
+          metadata?: Json;
+          route?: string | null;
+          severity?: string;
+          source?: string;
+          status_code?: number | null;
+        };
+        Update: {
+          area?: string;
+          campaign_id?: string | null;
+          company_id?: string | null;
+          created_at?: string;
+          event_type?: string;
+          fingerprint?: string;
+          id?: string;
+          link_id?: string | null;
+          message?: string;
+          metadata?: Json;
+          route?: string | null;
+          severity?: string;
+          source?: string;
+          status_code?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "system_health_events_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "system_health_events_company_id_fkey";
+            columns: ["company_id"];
+            isOneToOne: false;
+            referencedRelation: "companies";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "system_health_events_link_id_fkey";
             columns: ["link_id"];
             isOneToOne: false;
             referencedRelation: "company_campaign_links";
@@ -760,7 +839,12 @@ export type Database = {
       };
       is_admin: { Args: { _user_id: string }; Returns: boolean };
       submit_feedback_response: {
-        Args: { p_code: string; p_payload: Json };
+        Args: {
+          p_code: string;
+          p_payload: Json;
+          p_submission_payload_hash?: string | null;
+          p_submission_token?: string | null;
+        };
         Returns: string;
       };
     };

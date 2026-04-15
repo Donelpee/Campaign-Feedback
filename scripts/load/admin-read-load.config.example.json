@@ -1,0 +1,24 @@
+{
+  "concurrency": 15,
+  "requests": 120,
+  "scenarios": [
+    {
+      "name": "all_summary",
+      "path": "/rest/v1/rpc/get_feedback_response_summary",
+      "body": {
+        "p_company_id": null,
+        "p_campaign_id": null
+      }
+    },
+    {
+      "name": "all_page_1",
+      "path": "/rest/v1/rpc/get_feedback_response_page",
+      "body": {
+        "p_company_id": null,
+        "p_campaign_id": null,
+        "p_limit": 50,
+        "p_offset": 0
+      }
+    }
+  ]
+}

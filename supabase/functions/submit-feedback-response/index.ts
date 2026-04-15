@@ -12,9 +12,11 @@ declare const Deno: {
 };
 
 interface SubmitFeedbackRequest {
-  code: string;
+  code?: string | null;
   clientSessionId?: string | null;
-  payload: Record<string, unknown>;
+  submissionToken?: string | null;
+  payload?: Record<string, unknown> | null;
+  statusOnly?: boolean;
 }
 
 interface LinkRow {
@@ -40,6 +42,16 @@ interface ProfileRow {
 interface UserSettingsRow {
   user_id: string;
   email_notifications: boolean;
+}
+
+interface ExistingSubmissionRow {
+  id: string;
+  submission_payload_hash: string | null;
+}
+
+interface SubmissionAttemptRow {
+  attempt_status: "received" | "submitted" | "failed" | "rate_limited";
+  response_id: string | null;
 }
 
 declare const EdgeRuntime:
@@ -120,6 +132,137 @@ async function postRpc<T>(fn: string, body: Record<string, unknown>): Promise<T>
   const text = await response.text();
   if (!text.trim()) return "" as T;
   return JSON.parse(text) as T;
+}
+
+function getSafeErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim().slice(0, 500);
+  }
+  if (typeof error === "string" && error.trim()) {
+    return error.trim().slice(0, 500);
+  }
+  return fallback;
+}
+
+function normalizeForStableJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForStableJson(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce<Record<string, unknown>>((accumulator, key) => {
+        const normalizedValue = normalizeForStableJson(
+          (value as Record<string, unknown>)[key],
+        );
+
+        if (normalizedValue !== undefined) {
+          accumulator[key] = normalizedValue;
+        }
+
+        return accumulator;
+      }, {});
+  }
+
+  return value;
+}
+
+function stableStringify(value: unknown) {
+  return JSON.stringify(normalizeForStableJson(value));
+}
+
+function classifySubmissionError(error: unknown) {
+  const rawMessage = getSafeErrorMessage(error, "Failed to submit feedback.");
+
+  if (rawMessage.includes("Submission token payload mismatch")) {
+    return {
+      statusCode: 409,
+      message:
+        "Your responses changed during a previous submission attempt. Please submit the form again.",
+    };
+  }
+
+  if (rawMessage.includes("Invalid feedback link")) {
+    return {
+      statusCode: 404,
+      message: "This feedback link is not valid.",
+    };
+  }
+
+  if (rawMessage.includes("Feedback link is inactive")) {
+    return {
+      statusCode: 410,
+      message: "This feedback form is no longer accepting responses.",
+    };
+  }
+
+  if (rawMessage.includes("Campaign has not started")) {
+    return {
+      statusCode: 409,
+      message: "This feedback campaign has not started yet.",
+    };
+  }
+
+  if (rawMessage.includes("Campaign has ended")) {
+    return {
+      statusCode: 410,
+      message: "This feedback campaign has ended.",
+    };
+  }
+
+  return {
+    statusCode: 500,
+    message: "Failed to submit feedback.",
+  };
+}
+
+async function recordSystemHealthEvent(params: {
+  area: string;
+  eventType: string;
+  severity?: "info" | "warning" | "error" | "critical";
+  message: string;
+  fingerprint: string;
+  statusCode?: number | null;
+  companyId?: string | null;
+  campaignId?: string | null;
+  linkId?: string | null;
+  metadata?: Record<string, unknown>;
+}) {
+  await postgrest("system_health_events", {
+    method: "POST",
+    headers: {
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify([
+      {
+        source: "edge_function",
+        area: params.area,
+        severity: params.severity || "error",
+        event_type: params.eventType,
+        message: params.message.slice(0, 500),
+        fingerprint: params.fingerprint.slice(0, 240),
+        status_code: params.statusCode || null,
+        company_id: params.companyId || null,
+        campaign_id: params.campaignId || null,
+        link_id: params.linkId || null,
+        metadata: params.metadata || {},
+      },
+    ]),
+  });
+}
+
+function scheduleSystemHealthEvent(params: Parameters<typeof recordSystemHealthEvent>[0]) {
+  const task = recordSystemHealthEvent(params).catch((error) => {
+    console.error("submit-feedback-response system health logging failed:", error);
+  });
+
+  if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
+    EdgeRuntime.waitUntil(task);
+    return;
+  }
+
+  void task;
 }
 
 async function sendWithResend(params: {
@@ -244,6 +387,11 @@ async function hasRecentSuccessfulSubmission(
     if (recentClientSubmission.length > 0) {
       return true;
     }
+
+    // When we have a browser fingerprint, avoid using shared office IPs as a
+    // duplicate-submission cooldown key. This keeps separate respondents on the
+    // same network from blocking one another.
+    return false;
   }
 
   const recentIpSubmission = await postgrest<Array<{ id: string }>>(
@@ -254,10 +402,68 @@ async function hasRecentSuccessfulSubmission(
   return recentIpSubmission.length > 0;
 }
 
+async function findExistingSubmissionByToken(submissionToken: string) {
+  const rows = await postgrest<ExistingSubmissionRow[]>(
+    `feedback_responses?select=id,submission_payload_hash&submission_token=eq.${encodeURIComponent(submissionToken)}&limit=1`,
+    { method: "GET" },
+  );
+
+  return rows[0] || null;
+}
+
+async function getSubmissionStatus(submissionToken: string) {
+  const existingSubmission = await findExistingSubmissionByToken(submissionToken);
+  if (existingSubmission) {
+    return {
+      status: "submitted" as const,
+      responseId: existingSubmission.id,
+      deduplicated: true,
+    };
+  }
+
+  const attempts = await postgrest<SubmissionAttemptRow[]>(
+    `feedback_submission_attempts?select=attempt_status,response_id&submission_token=eq.${encodeURIComponent(submissionToken)}&order=attempted_at.desc&limit=1`,
+    { method: "GET" },
+  );
+
+  const latestAttempt = attempts[0];
+  if (!latestAttempt) {
+    return {
+      status: "not_found" as const,
+      responseId: null,
+      deduplicated: false,
+    };
+  }
+
+  if (latestAttempt.attempt_status === "submitted" && latestAttempt.response_id) {
+    return {
+      status: "submitted" as const,
+      responseId: latestAttempt.response_id,
+      deduplicated: true,
+    };
+  }
+
+  if (latestAttempt.attempt_status === "received") {
+    return {
+      status: "processing" as const,
+      responseId: null,
+      deduplicated: false,
+    };
+  }
+
+  return {
+    status: latestAttempt.attempt_status,
+    responseId: latestAttempt.response_id,
+    deduplicated: false,
+  };
+}
+
 async function recordSubmissionAttempt(
   code: string,
   ipFingerprint: string,
   clientFingerprint: string | null,
+  submissionToken: string | null,
+  payloadHash: string | null,
   attemptStatus: "received" | "submitted" | "failed" | "rate_limited" = "received",
 ) {
   const rows = await postgrest<Array<{ id: string }>>(
@@ -269,6 +475,8 @@ async function recordSubmissionAttempt(
         link_code: code,
         ip_fingerprint: ipFingerprint,
         client_fingerprint: clientFingerprint,
+        submission_token: submissionToken,
+        payload_hash: payloadHash,
         attempt_status: attemptStatus,
       }),
     },
@@ -418,6 +626,19 @@ async function sendAdminNotifications(code: string, responseId: string) {
     } catch (error) {
       failed += 1;
       console.error("submit-feedback-response email notification failed:", error);
+      scheduleSystemHealthEvent({
+        area: "admin_notification",
+        eventType: "admin_notification_email_failed",
+        severity: "error",
+        message: getSafeErrorMessage(error, "Admin notification email failed"),
+        fingerprint: `admin_notification_email_failed:${profile.user_id}:${responseId}`,
+        companyId: link.company_id,
+        campaignId: link.campaign_id,
+        metadata: {
+          responseId,
+          recipientUserId: profile.user_id,
+        },
+      });
     }
   }
 
@@ -428,6 +649,17 @@ async function sendAdminNotifications(code: string, responseId: string) {
 function scheduleAdminNotifications(code: string, responseId: string) {
   const task = sendAdminNotifications(code, responseId).catch((error) => {
     console.error("submit-feedback-response post-submit notification error:", error);
+    scheduleSystemHealthEvent({
+      area: "admin_notification",
+      eventType: "admin_notification_dispatch_failed",
+      severity: "error",
+      message: getSafeErrorMessage(error, "Admin notification dispatch failed"),
+      fingerprint: `admin_notification_dispatch_failed:${code}:${responseId}`,
+      metadata: {
+        code,
+        responseId,
+      },
+    });
   });
 
   if (typeof EdgeRuntime !== "undefined" && typeof EdgeRuntime.waitUntil === "function") {
@@ -448,16 +680,28 @@ Deno.serve(async (request) => {
   }
 
   let attemptId: string | null = null;
+  let submissionToken: string | null = null;
 
   try {
     const body = (await request.json()) as SubmitFeedbackRequest;
     const code = String(body?.code || "").trim();
     const clientSessionId =
       typeof body?.clientSessionId === "string" ? body.clientSessionId.trim() : "";
+    const requestedSubmissionToken =
+      typeof body?.submissionToken === "string" ? body.submissionToken.trim() : "";
+    const statusOnly = body?.statusOnly === true;
     const payload =
       body?.payload && typeof body.payload === "object" && !Array.isArray(body.payload)
         ? body.payload
         : null;
+
+    if (statusOnly) {
+      if (!requestedSubmissionToken) {
+        return jsonResponse(400, { error: "A submission token is required." });
+      }
+
+      return jsonResponse(200, await getSubmissionStatus(requestedSubmissionToken));
+    }
 
     if (!code || !payload) {
       return jsonResponse(400, { error: "A feedback code and payload are required." });
@@ -467,6 +711,32 @@ Deno.serve(async (request) => {
     const sessionFingerprint = clientSessionId
       ? await sha256Hex(`session:${clientSessionId}`)
       : null;
+    const payloadHash = await sha256Hex(stableStringify(payload));
+    submissionToken =
+      requestedSubmissionToken ||
+      (clientSessionId
+        ? await sha256Hex(`legacy:${code}:${clientSessionId}:${payloadHash}`)
+        : crypto.randomUUID());
+
+    const existingSubmission = await findExistingSubmissionByToken(submissionToken);
+    if (existingSubmission) {
+      if (
+        existingSubmission.submission_payload_hash &&
+        existingSubmission.submission_payload_hash !== payloadHash
+      ) {
+        return jsonResponse(409, {
+          error:
+            "Your responses changed during a previous submission attempt. Please submit the form again.",
+        });
+      }
+
+      return jsonResponse(200, {
+        responseId: existingSubmission.id,
+        deduplicated: true,
+        message: "Feedback submitted successfully.",
+      });
+    }
+
     const isWithinCooldown = await hasRecentSuccessfulSubmission(
       code,
       ipFingerprint,
@@ -477,8 +747,21 @@ Deno.serve(async (request) => {
         code,
         ipFingerprint,
         sessionFingerprint,
+        submissionToken,
+        payloadHash,
         "rate_limited",
       );
+      scheduleSystemHealthEvent({
+        area: "feedback_submission",
+        eventType: "feedback_submission_cooldown_blocked",
+        severity: "warning",
+        message: SUBMISSION_COOLDOWN_ERROR,
+        fingerprint: `feedback_submission_cooldown_blocked:${code}:${ipFingerprint}:${sessionFingerprint || "none"}`,
+        metadata: {
+          code,
+          hasClientSession: !!sessionFingerprint,
+        },
+      });
       return jsonResponse(429, { error: SUBMISSION_COOLDOWN_ERROR });
     }
 
@@ -492,8 +775,22 @@ Deno.serve(async (request) => {
         code,
         ipFingerprint,
         sessionFingerprint,
+        submissionToken,
+        payloadHash,
         "rate_limited",
       );
+      scheduleSystemHealthEvent({
+        area: "feedback_submission",
+        eventType: "feedback_submission_rate_limit_blocked",
+        severity: "warning",
+        message:
+          "Too many recent submission attempts from this browser or network.",
+        fingerprint: `feedback_submission_rate_limit_blocked:${code}:${ipFingerprint}:${sessionFingerprint || "none"}`,
+        metadata: {
+          code,
+          hasClientSession: !!sessionFingerprint,
+        },
+      });
       return jsonResponse(429, {
         error:
           "Too many recent submission attempts from this browser or network. Please wait a few minutes and try again.",
@@ -504,12 +801,16 @@ Deno.serve(async (request) => {
       code,
       ipFingerprint,
       sessionFingerprint,
+      submissionToken,
+      payloadHash,
       "received",
     );
 
     const responseId = await postRpc<string>("submit_feedback_response", {
       p_code: code,
       p_payload: payload,
+      p_submission_token: submissionToken,
+      p_submission_payload_hash: payloadHash,
     });
 
     await updateSubmissionAttempt(attemptId, {
@@ -524,17 +825,27 @@ Deno.serve(async (request) => {
       message: "Feedback submitted successfully.",
     });
   } catch (error) {
+    const classifiedError = classifySubmissionError(error);
     await updateSubmissionAttempt(attemptId, {
       attempt_status: "failed",
     }).catch((attemptError) => {
       console.error("submit-feedback-response attempt update failed:", attemptError);
     });
     console.error("submit-feedback-response function error:", error);
-    return jsonResponse(500, {
-      error:
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : "Failed to submit feedback.",
+    scheduleSystemHealthEvent({
+      area: "feedback_submission",
+      eventType: "submit_feedback_response_failed",
+      severity: "error",
+      message: getSafeErrorMessage(error, "Failed to submit feedback"),
+      fingerprint: `submit_feedback_response_failed:${attemptId || "no_attempt"}`,
+      statusCode: classifiedError.statusCode,
+      metadata: {
+        attemptId,
+        submissionToken,
+      },
+    });
+    return jsonResponse(classifiedError.statusCode, {
+      error: classifiedError.message,
     });
   }
 });

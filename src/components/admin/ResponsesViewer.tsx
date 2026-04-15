@@ -78,6 +78,7 @@ import {
   getOtherAnswerText,
   getQuestionIdFromOtherAnswerKey,
 } from "@/lib/campaign-answer-utils";
+import { getErrorMessage, reportSystemHealthEvent } from "@/lib/system-health";
 import {
   BarChart,
   Bar,
@@ -392,11 +393,15 @@ export function ResponsesViewer() {
   const { toast } = useToast();
   const { user } = useAuth();
   const [responses, setResponses] = useState<ResponseWithDetails[]>([]);
+  const [analyticsScopeResponses, setAnalyticsScopeResponses] = useState<
+    ResponseWithDetails[]
+  >([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [links, setLinks] = useState<LinkWithRelations[]>([]);
   const [selectedResponse, setSelectedResponse] =
     useState<ResponseWithDetails | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingAnalyticsScope, setIsLoadingAnalyticsScope] = useState(true);
   const [filterCompany, setFilterCompany] = useState<string>("all");
   const [filterCampaign, setFilterCampaign] = useState<string>("all");
   const [campaignSearch, setCampaignSearch] = useState("");
@@ -419,6 +424,7 @@ export function ResponsesViewer() {
     showResponseTimestamps: true,
   });
   const refreshTimeoutRef = useRef<number | null>(null);
+  const analyticsScopeRequestRef = useRef(0);
 
   const loadViewerSettings = useCallback(async () => {
     if (!user?.id) return;
@@ -431,6 +437,15 @@ export function ResponsesViewer() {
 
     if (error) {
       console.error("Error loading response viewer settings:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses",
+        eventType: "response_viewer_settings_load_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to load response viewer settings"),
+        metadata: {
+          userId: user.id,
+        },
+      });
       return;
     }
 
@@ -485,6 +500,17 @@ export function ResponsesViewer() {
       setCampaignSummaries((summaryData.campaigns || []) as CampaignSummary[]);
     } catch (error) {
       console.error("Error loading data:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses",
+        eventType: "response_page_load_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to load response page"),
+        metadata: {
+          filterCompany,
+          filterCampaign,
+          currentPage,
+        },
+      });
       toast({
         variant: "destructive",
         title: "Error",
@@ -492,6 +518,77 @@ export function ResponsesViewer() {
       });
     }
   }, [currentPage, filterCampaign, filterCompany, toast]);
+
+  const loadAllResponsesInScope = useCallback(
+    async ({
+      companyId,
+      campaignId,
+    }: {
+      companyId: string | null;
+      campaignId: string | null;
+    }) => {
+      const scopedRows: ResponseWithDetails[] = [];
+      let offset = 0;
+      let totalCount = 0;
+
+      do {
+        const { data, error } = await supabase.rpc("get_feedback_response_page", {
+          p_company_id: companyId,
+          p_campaign_id: campaignId,
+          p_limit: 500,
+          p_offset: offset,
+        });
+
+        if (error) throw error;
+
+        const pageRows = (data || []) as ResponsePageRow[];
+        totalCount = pageRows[0]?.total_count || totalCount;
+        scopedRows.push(...pageRows.map(mapResponsePageRow));
+        offset += pageRows.length;
+
+        if (pageRows.length === 0) break;
+      } while (offset < totalCount);
+
+      return scopedRows;
+    },
+    [],
+  );
+
+  const loadAnalyticsScopeResponses = useCallback(async () => {
+    const requestId = ++analyticsScopeRequestRef.current;
+    setIsLoadingAnalyticsScope(true);
+
+    try {
+      const nextResponses = await loadAllResponsesInScope({
+        companyId: filterCompany === "all" ? null : filterCompany,
+        campaignId: null,
+      });
+
+      if (analyticsScopeRequestRef.current !== requestId) return;
+      setAnalyticsScopeResponses(nextResponses);
+    } catch (error) {
+      if (analyticsScopeRequestRef.current !== requestId) return;
+      console.error("Error loading analytics response scope:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses",
+        eventType: "response_analytics_scope_load_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to load analytics response scope"),
+        metadata: {
+          filterCompany,
+        },
+      });
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to load analytics scope.",
+      });
+    } finally {
+      if (analyticsScopeRequestRef.current === requestId) {
+        setIsLoadingAnalyticsScope(false);
+      }
+    }
+  }, [filterCompany, loadAllResponsesInScope, toast]);
 
   const loadStaticData = useCallback(async () => {
     try {
@@ -529,6 +626,12 @@ export function ResponsesViewer() {
       );
     } catch (error) {
       console.error("Error loading static response viewer data:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses",
+        eventType: "response_viewer_static_data_load_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to load response viewer static data"),
+      });
       toast({
         variant: "destructive",
         title: "Error",
@@ -540,11 +643,15 @@ export function ResponsesViewer() {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      await Promise.all([loadStaticData(), loadResponseData()]);
+      await Promise.all([
+        loadStaticData(),
+        loadResponseData(),
+        loadAnalyticsScopeResponses(),
+      ]);
     } finally {
       setIsLoading(false);
     }
-  }, [loadResponseData, loadStaticData]);
+  }, [loadAnalyticsScopeResponses, loadResponseData, loadStaticData]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -562,6 +669,10 @@ export function ResponsesViewer() {
   }, [loadResponseData]);
 
   useEffect(() => {
+    void loadAnalyticsScopeResponses();
+  }, [loadAnalyticsScopeResponses]);
+
+  useEffect(() => {
     const channel = supabase
       .channel("feedback-responses")
       .on(
@@ -572,7 +683,7 @@ export function ResponsesViewer() {
             window.clearTimeout(refreshTimeoutRef.current);
           }
           refreshTimeoutRef.current = window.setTimeout(() => {
-            void loadResponseData();
+            void Promise.all([loadResponseData(), loadAnalyticsScopeResponses()]);
           }, 900);
         },
       )
@@ -584,7 +695,7 @@ export function ResponsesViewer() {
       }
       supabase.removeChannel(channel);
     };
-  }, [loadResponseData]);
+  }, [loadAnalyticsScopeResponses, loadResponseData]);
 
   // Reset campaign filter when company changes
   useEffect(() => {
@@ -628,7 +739,12 @@ export function ResponsesViewer() {
     return campaignsForCompany.filter((c) => c.name.toLowerCase().includes(q));
   }, [campaignsForCompany, campaignSearch]);
 
-  const filteredResponses = responses;
+  const filteredResponses = useMemo(() => {
+    if (filterCampaign === "all") return analyticsScopeResponses;
+    return analyticsScopeResponses.filter(
+      (response) => response.link.campaign.id === filterCampaign,
+    );
+  }, [analyticsScopeResponses, filterCampaign]);
 
   const trendData = useMemo(() => {
     const map = new Map<string, number>();
@@ -669,6 +785,7 @@ export function ResponsesViewer() {
       ),
     [campaignSummaries],
   );
+  const isViewerLoading = isLoading || isLoadingAnalyticsScope;
 
   const totalPages = Math.max(1, Math.ceil(totalResponsesCount / RESPONSE_PAGE_SIZE));
   const pageStart = totalResponsesCount === 0 ? 0 : (currentPage - 1) * RESPONSE_PAGE_SIZE + 1;
@@ -725,14 +842,20 @@ export function ResponsesViewer() {
     });
     const peerLinkIds = new Set(peerLinks.map((link) => link.id));
     const peerViews = peerLinks.reduce((sum, link) => sum + (link.access_count || 0), 0);
-    const peerResponses = responses.filter((response) =>
+    const peerResponses = analyticsScopeResponses.filter((response) =>
       peerLinkIds.has(response.link_id),
     ).length;
     const peerRate = peerViews > 0 ? (peerResponses / peerViews) * 100 : 0;
     const gap = selectedRate - peerRate;
 
     return { selectedRate, peerRate, gap };
-  }, [filterCampaign, filterCompany, filteredResponses, links, responses]);
+  }, [
+    analyticsScopeResponses,
+    filterCampaign,
+    filterCompany,
+    filteredResponses,
+    links,
+  ]);
 
   const sentimentInsight = useMemo(() => {
     const collectedText: string[] = [];
@@ -922,30 +1045,11 @@ export function ResponsesViewer() {
   ]);
 
   const loadAllResponsesForExport = useCallback(async () => {
-    const exportRows: ResponseWithDetails[] = [];
-    let offset = 0;
-    let totalCount = 0;
-
-    do {
-      const { data, error } = await supabase.rpc("get_feedback_response_page", {
-        p_company_id: filterCompany === "all" ? null : filterCompany,
-        p_campaign_id: filterCampaign === "all" ? null : filterCampaign,
-        p_limit: 500,
-        p_offset: offset,
-      });
-
-      if (error) throw error;
-
-      const pageRows = (data || []) as ResponsePageRow[];
-      totalCount = pageRows[0]?.total_count || totalCount;
-      exportRows.push(...pageRows.map(mapResponsePageRow));
-      offset += pageRows.length;
-
-      if (pageRows.length === 0) break;
-    } while (offset < totalCount);
-
-    return exportRows;
-  }, [filterCampaign, filterCompany]);
+    return loadAllResponsesInScope({
+      companyId: filterCompany === "all" ? null : filterCompany,
+      campaignId: filterCampaign === "all" ? null : filterCampaign,
+    });
+  }, [filterCampaign, filterCompany, loadAllResponsesInScope]);
 
   const handleExportCSV = () => {
     if (totalResponsesCount === 0) {
@@ -975,6 +1079,16 @@ export function ResponsesViewer() {
       })
       .catch((error) => {
         console.error("Error exporting CSV:", error);
+        void reportSystemHealthEvent({
+          area: "admin_responses_export",
+          eventType: "response_csv_export_failed",
+          severity: "error",
+          message: getErrorMessage(error, "Failed to export response CSV"),
+          metadata: {
+            filterCompany,
+            filterCampaign,
+          },
+        });
         toast({
           variant: "destructive",
           title: "Error",
@@ -1069,6 +1183,16 @@ export function ResponsesViewer() {
       });
     } catch (error) {
       console.error("Error exporting to Excel:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses_export",
+        eventType: "response_excel_export_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to export response Excel"),
+        metadata: {
+          filterCompany,
+          filterCampaign,
+        },
+      });
       toast({
         variant: "destructive",
         title: "Error",
@@ -1162,6 +1286,16 @@ export function ResponsesViewer() {
       });
     } catch (error) {
       console.error("Error exporting to PDF:", error);
+      void reportSystemHealthEvent({
+        area: "admin_responses_export",
+        eventType: "response_pdf_export_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to export response PDF"),
+        metadata: {
+          filterCompany,
+          filterCampaign,
+        },
+      });
       toast({
         variant: "destructive",
         title: "Error",
@@ -1329,6 +1463,17 @@ export function ResponsesViewer() {
       } catch (error) {
         if (cancelled) return;
         console.error("Error loading question reports:", error);
+        void reportSystemHealthEvent({
+          area: "admin_responses",
+          eventType: "question_report_generation_failed",
+          severity: "error",
+          message: getErrorMessage(error, "Failed to build question reports"),
+          metadata: {
+            filterCompany,
+            filterCampaign,
+            campaignId: selectedCampaignForInsights.id,
+          },
+        });
         setQuestionReports([]);
       } finally {
         if (!cancelled) {
@@ -1342,7 +1487,13 @@ export function ResponsesViewer() {
     return () => {
       cancelled = true;
     };
-  }, [buildExportData, loadAllResponsesForExport, selectedCampaignForInsights]);
+  }, [
+    buildExportData,
+    filterCampaign,
+    filterCompany,
+    loadAllResponsesForExport,
+    selectedCampaignForInsights,
+  ]);
 
   const formatResponseDate = (dateValue: string) =>
     viewerSettings.showResponseTimestamps
@@ -1868,9 +2019,11 @@ export function ResponsesViewer() {
                 <Button
                   size="sm"
                   onClick={loadData}
-                  disabled={isLoading}
+                  disabled={isViewerLoading}
                 >
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  <RefreshCw
+                    className={`mr-2 h-4 w-4 ${isViewerLoading ? "animate-spin" : ""}`}
+                  />
                   Apply Filter
                 </Button>
                 <Button
@@ -2155,7 +2308,7 @@ export function ResponsesViewer() {
             </div>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
+            {isViewerLoading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
@@ -2289,7 +2442,7 @@ export function ResponsesViewer() {
                         size="sm"
                         variant="outline"
                         onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                        disabled={currentPage === 1 || isLoading}
+                        disabled={currentPage === 1 || isViewerLoading}
                       >
                         Previous
                       </Button>
@@ -2300,7 +2453,7 @@ export function ResponsesViewer() {
                         size="sm"
                         variant="outline"
                         onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                        disabled={currentPage >= totalPages || isLoading}
+                        disabled={currentPage >= totalPages || isViewerLoading}
                       >
                         Next
                       </Button>

@@ -65,6 +65,7 @@ import {
   sanitizeQuestionOptions,
 } from "@/lib/campaign-answer-utils";
 import { parseDateOnlyEnd, parseDateOnlyStart } from "@/lib/date-utils";
+import { getErrorMessage, reportSystemHealthEvent } from "@/lib/system-health";
 
 type MatrixAnswer = Record<string, string | string[]>;
 type DynamicAnswer =
@@ -123,6 +124,21 @@ const FEEDBACK_RESPONDER_SESSION_KEY = "feedback-responder-session-id";
 const FEEDBACK_SUBMISSION_COOLDOWN_MINUTES = 5;
 const FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE = "Please try again after 5 minutes";
 const FEEDBACK_SUBMISSION_COOLDOWN_PREFIX = "feedback-submission-cooldown:";
+const FEEDBACK_PENDING_SUBMISSION_PREFIX = "feedback-pending-submission:";
+const FEEDBACK_SUBMISSION_RECOVERY_MESSAGE =
+  "We could not confirm your submission yet. Please wait a few seconds and submit again. We will reuse your earlier attempt if it already went through.";
+
+interface FeedbackSubmissionStatusResponse {
+  status: "submitted" | "processing" | "not_found" | "failed" | "rate_limited";
+  responseId: string | null;
+  deduplicated?: boolean;
+}
+
+interface PendingFeedbackSubmission {
+  token: string;
+  payloadFingerprint: string;
+  createdAt: number;
+}
 
 function getFeedbackResponderSessionId(): string | null {
   if (typeof window === "undefined") return null;
@@ -143,6 +159,113 @@ function getFeedbackResponderSessionId(): string | null {
 
 function getFeedbackSubmissionCooldownKey(code: string) {
   return `${FEEDBACK_SUBMISSION_COOLDOWN_PREFIX}${code}`;
+}
+
+function getPendingFeedbackSubmissionKey(code: string) {
+  return `${FEEDBACK_PENDING_SUBMISSION_PREFIX}${code}`;
+}
+
+function normalizeForStableJson(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => normalizeForStableJson(entry));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.keys(value as Record<string, unknown>)
+      .sort((left, right) => left.localeCompare(right))
+      .reduce<Record<string, unknown>>((accumulator, key) => {
+        const normalizedValue = normalizeForStableJson(
+          (value as Record<string, unknown>)[key],
+        );
+
+        if (normalizedValue !== undefined) {
+          accumulator[key] = normalizedValue;
+        }
+
+        return accumulator;
+      }, {});
+  }
+
+  return value;
+}
+
+function stableSerializeSubmission(value: unknown) {
+  return JSON.stringify(normalizeForStableJson(value));
+}
+
+function getPendingFeedbackSubmission(
+  code: string,
+): PendingFeedbackSubmission | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const rawValue = window.sessionStorage.getItem(getPendingFeedbackSubmissionKey(code));
+    if (!rawValue) return null;
+
+    const parsed = JSON.parse(rawValue) as PendingFeedbackSubmission;
+    if (
+      typeof parsed?.token !== "string" ||
+      parsed.token.trim().length === 0 ||
+      typeof parsed?.payloadFingerprint !== "string"
+    ) {
+      window.sessionStorage.removeItem(getPendingFeedbackSubmissionKey(code));
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function ensurePendingFeedbackSubmissionToken(
+  code: string,
+  payloadFingerprint: string,
+) {
+  if (typeof window === "undefined") {
+    return crypto.randomUUID();
+  }
+
+  try {
+    const existing = getPendingFeedbackSubmission(code);
+    if (
+      existing &&
+      existing.payloadFingerprint === payloadFingerprint &&
+      existing.token.trim().length > 0
+    ) {
+      return existing.token;
+    }
+
+    const nextToken = crypto.randomUUID();
+    const nextValue: PendingFeedbackSubmission = {
+      token: nextToken,
+      payloadFingerprint,
+      createdAt: Date.now(),
+    };
+
+    window.sessionStorage.setItem(
+      getPendingFeedbackSubmissionKey(code),
+      JSON.stringify(nextValue),
+    );
+
+    return nextToken;
+  } catch {
+    return crypto.randomUUID();
+  }
+}
+
+function clearPendingFeedbackSubmission(code: string) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.removeItem(getPendingFeedbackSubmissionKey(code));
+  } catch {
+    // Ignore session storage failures.
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function getActiveFeedbackSubmissionCooldown(code: string): number | null {
@@ -508,6 +631,16 @@ export default function FeedbackForm() {
       setIsLoading(false);
     } catch (err) {
       console.error("Error loading link data:", err);
+      void reportSystemHealthEvent({
+        area: "feedback_form",
+        eventType: "feedback_form_load_failed",
+        severity: "error",
+        message: getErrorMessage(err, "Failed to load feedback form"),
+        metadata: {
+          code,
+          isPreviewMode,
+        },
+      });
       setLoadError("Failed to load the feedback form. Please try again.");
       setIsLoading(false);
     }
@@ -754,6 +887,21 @@ export default function FeedbackForm() {
       ),
     };
   }, [dynamicAnswers, formData, hasDynamicQuestions, linkData, visibleDynamicQuestions]);
+  const submissionPayload = useMemo(
+    () => ({
+      overall_satisfaction: derivedPayload.overall_satisfaction,
+      service_quality: derivedPayload.service_quality,
+      recommendation_likelihood: derivedPayload.recommendation_likelihood,
+      improvement_areas: derivedPayload.improvement_areas,
+      additional_comments: derivedPayload.additional_comments || null,
+      answers: derivedPayload.answers,
+    }),
+    [derivedPayload],
+  );
+  const submissionPayloadFingerprint = useMemo(
+    () => stableSerializeSubmission(submissionPayload),
+    [submissionPayload],
+  );
 
   const isRequiredQuestionMissing = (question: CampaignQuestion) => {
     const answer = dynamicAnswers[question.id];
@@ -836,41 +984,124 @@ export default function FeedbackForm() {
 
     setIsSubmitting(true);
 
+    const submissionToken = ensurePendingFeedbackSubmissionToken(
+      code,
+      submissionPayloadFingerprint,
+    );
+
+    const recoverSubmission = async () => {
+      const retryDelaysMs = [1200, 2500, 4000];
+
+      for (const waitMs of retryDelaysMs) {
+        await delay(waitMs);
+
+        const { data, error } = await supabase.functions.invoke<FeedbackSubmissionStatusResponse>(
+          "submit-feedback-response",
+          {
+            body: {
+              statusOnly: true,
+              submissionToken,
+            },
+          },
+        );
+
+        if (error) {
+          continue;
+        }
+
+        if (data?.status === "submitted" && data.responseId) {
+          clearPendingFeedbackSubmission(code);
+          setFeedbackSubmissionCooldown(code);
+          setIsSubmitted(true);
+          return true;
+        }
+
+        if (data?.status === "failed") {
+          clearPendingFeedbackSubmission(code);
+          setSubmitError("Your earlier submission did not complete. Please submit again.");
+          return true;
+        }
+
+        if (data?.status === "rate_limited") {
+          setFeedbackSubmissionCooldown(code);
+          setSubmitError(FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE);
+          return true;
+        }
+      }
+
+      return false;
+    };
+
     try {
       const { error } = await supabase.functions.invoke("submit-feedback-response", {
         body: {
           code,
           clientSessionId: getFeedbackResponderSessionId(),
-          payload: {
-            overall_satisfaction: derivedPayload.overall_satisfaction,
-            service_quality: derivedPayload.service_quality,
-            recommendation_likelihood: derivedPayload.recommendation_likelihood,
-            improvement_areas: derivedPayload.improvement_areas,
-            additional_comments: derivedPayload.additional_comments || null,
-            answers: derivedPayload.answers,
-          },
+          submissionToken,
+          payload: submissionPayload,
         },
       });
 
       if (error) throw error;
 
+      clearPendingFeedbackSubmission(code);
       setFeedbackSubmissionCooldown(code);
       setIsSubmitted(true);
     } catch (err) {
       console.error("Error submitting feedback:", err);
       if (err instanceof FunctionsHttpError) {
+        const statusCode = err.context.status;
         try {
           const errorBody = await err.context.json();
           const errorMessage =
             typeof errorBody?.error === "string" && errorBody.error.trim()
               ? errorBody.error
               : "Failed to submit your feedback. Please try again.";
+          void reportSystemHealthEvent({
+            area: "feedback_form_submission",
+            eventType:
+              statusCode === 429
+                ? "feedback_submission_rate_limited"
+                : "feedback_submission_failed",
+            severity: statusCode === 429 ? "warning" : "error",
+            message: errorMessage,
+            statusCode,
+            linkId: linkData.id,
+            metadata: {
+              code,
+              campaignName: linkData.campaign_name,
+            },
+          });
+          if (statusCode >= 500 && (await recoverSubmission())) {
+            return;
+          }
+          if (statusCode < 500) {
+            clearPendingFeedbackSubmission(code);
+          }
           if (errorMessage === FEEDBACK_SUBMISSION_COOLDOWN_MESSAGE) {
             setFeedbackSubmissionCooldown(code);
           }
           setSubmitError(errorMessage);
           return;
         } catch {
+          void reportSystemHealthEvent({
+            area: "feedback_form_submission",
+            eventType: "feedback_submission_failed",
+            severity: "error",
+            message: "Failed to parse feedback submission error response",
+            statusCode,
+            linkId: linkData.id,
+            metadata: {
+              code,
+              campaignName: linkData.campaign_name,
+            },
+          });
+          if (statusCode >= 500 && (await recoverSubmission())) {
+            return;
+          }
+          if (statusCode < 500) {
+            clearPendingFeedbackSubmission(code);
+          }
           setSubmitError("Failed to submit your feedback. Please try again.");
           return;
         }
@@ -880,7 +1111,21 @@ export default function FeedbackForm() {
         err instanceof Error && err.message.trim()
           ? err.message
           : "Failed to submit your feedback. Please try again.";
-      setSubmitError(fallbackMessage);
+      void reportSystemHealthEvent({
+        area: "feedback_form_submission",
+        eventType: "feedback_submission_failed",
+        severity: "error",
+        message: fallbackMessage,
+        linkId: linkData.id,
+        metadata: {
+          code,
+          campaignName: linkData.campaign_name,
+        },
+      });
+      if (await recoverSubmission()) {
+        return;
+      }
+      setSubmitError(FEEDBACK_SUBMISSION_RECOVERY_MESSAGE);
     } finally {
       setIsSubmitting(false);
     }
@@ -1170,6 +1415,18 @@ export default function FeedbackForm() {
       }));
     } catch (error) {
       console.error("Error uploading feedback files:", error);
+      void reportSystemHealthEvent({
+        area: "feedback_form_upload",
+        eventType: "feedback_file_upload_failed",
+        severity: "error",
+        message: getErrorMessage(error, "Failed to upload feedback files"),
+        linkId: linkData?.id || null,
+        metadata: {
+          code,
+          questionId: question.id,
+          fileCount: files.length,
+        },
+      });
       setFileUploadErrors((prev) => ({
         ...prev,
         [question.id]:

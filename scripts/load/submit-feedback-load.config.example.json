@@ -1,0 +1,22 @@
+{
+  "mode": "public_edge",
+  "concurrency": 10,
+  "requests": 10,
+  "codes": [
+    "replace-with-active-link-code-1",
+    "replace-with-active-link-code-2",
+    "replace-with-active-link-code-3",
+    "replace-with-active-link-code-4",
+    "replace-with-active-link-code-5",
+    "replace-with-active-link-code-6",
+    "replace-with-active-link-code-7",
+    "replace-with-active-link-code-8",
+    "replace-with-active-link-code-9",
+    "replace-with-active-link-code-10"
+  ],
+  "payloadOverrides": {
+    "answers": {
+      "load_test_campaign": "replace-if-you-want-extra-answer-fields"
+    }
+  }
+}

@@ -25,6 +25,7 @@ import {
   Link2,
   FileText,
   ScrollText,
+  Activity,
   LogOut,
   Settings,
   Users,
@@ -71,6 +72,12 @@ const menuItems: MenuItem[] = [
     url: "/admin/notifications",
     icon: Bell,
     permission: "responses",
+  },
+  {
+    title: "Monitoring",
+    url: "/admin/monitoring",
+    icon: Activity,
+    permission: "audit_logs",
   },
 ];
 
