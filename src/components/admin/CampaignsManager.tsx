@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock, Building2 } from "lucide-react";
+import { Plus, Trash2, Loader2, Calendar, Eye, Pencil, Lock, Building2, CopyPlus } from "lucide-react";
 import type { WizardData } from "./campaign-wizard/CampaignWizard";
 import type { Campaign } from "@/lib/supabase-types";
 import { normalizeCampaignSurvey } from "@/lib/campaign-survey";
@@ -44,6 +44,23 @@ import {
   readLocalCampaigns,
   writeLocalCampaigns,
 } from "@/lib/campaign-builder";
+import {
+  makeTemplateFromCampaign,
+  type CampaignTemplateVisibility,
+  readLocalCampaignTemplates,
+  writeLocalCampaignTemplates,
+  type CampaignTemplate,
+} from "@/lib/campaign-templates";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const campaignTypeLabels: Record<string, string> = {
   feedback: "Customer Feedback",
@@ -55,7 +72,7 @@ const campaignTypeLabels: Record<string, string> = {
 export function CampaignsManager() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { bypassAuth } = useAuth();
+  const { bypassAuth, user } = useAuth();
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [responseCountByCampaign, setResponseCountByCampaign] = useState<
     Record<string, number>
@@ -65,10 +82,21 @@ export function CampaignsManager() {
   >({});
   const [showDraftDecision, setShowDraftDecision] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [templates, setTemplates] = useState<CampaignTemplate[]>([]);
+  const [showSaveTemplateDialog, setShowSaveTemplateDialog] = useState(false);
+  const [selectedCampaignForTemplate, setSelectedCampaignForTemplate] = useState<Campaign | null>(null);
+  const [templateName, setTemplateName] = useState("");
+  const [templateDescription, setTemplateDescription] = useState("");
+  const [templateVisibility, setTemplateVisibility] =
+    useState<CampaignTemplateVisibility>("organization");
+  const [editingTemplate, setEditingTemplate] = useState<CampaignTemplate | null>(null);
+  const [showEditTemplateDialog, setShowEditTemplateDialog] = useState(false);
+  const [showUseTemplateDialog, setShowUseTemplateDialog] = useState(false);
 
   const loadCampaigns = useCallback(async () => {
     if (bypassAuth) {
       const localCampaigns = readLocalCampaigns();
+      const localTemplates = readLocalCampaignTemplates();
       setCampaigns(
         localCampaigns.map((campaign) => {
           const survey = normalizeCampaignSurvey({
@@ -84,12 +112,13 @@ export function CampaignsManager() {
           };
         }),
       );
+      setTemplates(localTemplates);
       setIsLoading(false);
       return;
     }
 
     try {
-      const [campaignsRes, linksRes, companiesRes, countsRes] = await Promise.all([
+      const [campaignsRes, linksRes, companiesRes, countsRes, templatesRes] = await Promise.all([
         supabase
           .from("campaigns")
           .select("*")
@@ -101,12 +130,17 @@ export function CampaignsManager() {
           .from("companies")
           .select("id, name, logo_url"),
         supabase.rpc("get_campaign_response_counts", {}),
+        supabase
+          .from("campaign_templates")
+          .select("*")
+          .order("created_at", { ascending: false }),
       ]);
 
       if (campaignsRes.error) throw campaignsRes.error;
       if (linksRes.error) throw linksRes.error;
       if (companiesRes.error) throw companiesRes.error;
       if (countsRes.error) throw countsRes.error;
+      if (templatesRes.error) throw templatesRes.error;
 
       const data = campaignsRes.data || [];
       const links = linksRes.data || [];
@@ -171,6 +205,26 @@ export function CampaignsManager() {
 
       setResponseCountByCampaign(responseCounts);
       setCampaignCompanyById(campaignCompanyMap);
+      setTemplates(
+        (templatesRes.data || []).map((template) => {
+          const survey = normalizeCampaignSurvey(template.questions);
+          return {
+            id: template.id,
+            name: template.name,
+            description: template.description,
+            campaign_type: (template.campaign_type || "feedback") as Campaign["campaign_type"],
+            visibility_scope:
+              (template.visibility_scope as CampaignTemplateVisibility) ||
+              "organization",
+            created_by_user_id: template.created_by_user_id,
+            sections: survey.sections,
+            questions: survey.questions,
+            source_campaign_id: template.source_campaign_id,
+            created_at: template.created_at,
+            updated_at: template.updated_at,
+          };
+        }),
+      );
     } catch (error) {
       console.error("Error loading campaigns:", error);
       toast({
@@ -274,6 +328,195 @@ export function CampaignsManager() {
     navigate("/admin/campaigns/builder", { state: { draft } });
   };
 
+  const handleOpenSaveTemplate = (campaign: Campaign) => {
+    setSelectedCampaignForTemplate(campaign);
+    setTemplateName(`${campaign.name} Template`);
+    setTemplateDescription(campaign.description || "");
+    setTemplateVisibility("organization");
+    setShowSaveTemplateDialog(true);
+  };
+
+  const handleSaveTemplate = async () => {
+    if (!selectedCampaignForTemplate) return;
+    const trimmedName = templateName.trim();
+    if (!trimmedName) {
+      toast({
+        variant: "destructive",
+        title: "Template name required",
+        description: "Please enter a template name.",
+      });
+      return;
+    }
+
+    const newTemplate = makeTemplateFromCampaign(
+      selectedCampaignForTemplate,
+      trimmedName,
+      templateDescription,
+      templateVisibility,
+      user?.id || null,
+    );
+
+    if (bypassAuth) {
+      const updatedTemplates = [newTemplate, ...readLocalCampaignTemplates()];
+      writeLocalCampaignTemplates(updatedTemplates);
+      setTemplates(updatedTemplates);
+      setShowSaveTemplateDialog(false);
+      setSelectedCampaignForTemplate(null);
+      toast({
+        title: "Template saved",
+        description: "You can now reuse it to create campaigns faster.",
+      });
+      return;
+    }
+
+    try {
+      const serializedSurvey = {
+        version: 2 as const,
+        sections: newTemplate.sections,
+        questions: newTemplate.questions,
+      };
+      const { error } = await supabase.from("campaign_templates").insert([
+        {
+          name: newTemplate.name,
+          description: newTemplate.description,
+          campaign_type: newTemplate.campaign_type,
+          visibility_scope: newTemplate.visibility_scope,
+          questions: serializedSurvey,
+          source_campaign_id: newTemplate.source_campaign_id || null,
+        },
+      ]);
+      if (error) throw error;
+      toast({
+        title: "Template saved",
+        description: "You can now reuse it to create campaigns faster.",
+      });
+      setShowSaveTemplateDialog(false);
+      setSelectedCampaignForTemplate(null);
+      setTemplateName("");
+      setTemplateDescription("");
+      setTemplateVisibility("organization");
+      loadCampaigns();
+    } catch (error) {
+      console.error("Error saving template:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to save template.",
+      });
+    }
+  };
+
+  const handleUseTemplate = (template: CampaignTemplate) => {
+    const draft: WizardData = {
+      creationMode: "guided_buddy",
+      campaignType: template.campaign_type,
+      selectedCompanyId: "",
+      selectedCompanyName: "",
+      name: `${template.name} Copy`,
+      description: template.description || "",
+      startDate: "",
+      endDate: "",
+      sections: template.sections || [],
+      questions: template.questions || [],
+      documentContent: "",
+    };
+    setShowUseTemplateDialog(false);
+    navigate("/admin/campaigns/builder", { state: { draft } });
+  };
+
+  const canManageTemplate = (template: CampaignTemplate) =>
+    bypassAuth || !template.created_by_user_id || template.created_by_user_id === user?.id;
+
+  const handleOpenEditTemplate = (template: CampaignTemplate) => {
+    setEditingTemplate(template);
+    setTemplateName(template.name);
+    setTemplateDescription(template.description || "");
+    setTemplateVisibility(template.visibility_scope || "organization");
+    setShowEditTemplateDialog(true);
+  };
+
+  const handleUpdateTemplate = async () => {
+    if (!editingTemplate) return;
+    const trimmedName = templateName.trim();
+    if (!trimmedName) {
+      toast({
+        variant: "destructive",
+        title: "Template name required",
+        description: "Please enter a template name.",
+      });
+      return;
+    }
+
+    if (bypassAuth) {
+      const updated = readLocalCampaignTemplates().map((template) =>
+        template.id === editingTemplate.id
+          ? {
+              ...template,
+              name: trimmedName,
+              description: templateDescription.trim() || null,
+              visibility_scope: templateVisibility,
+              updated_at: new Date().toISOString(),
+            }
+          : template,
+      );
+      writeLocalCampaignTemplates(updated);
+      setTemplates(updated);
+      setShowEditTemplateDialog(false);
+      setEditingTemplate(null);
+      toast({ title: "Template updated", description: "Template changes saved." });
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("campaign_templates")
+        .update({
+          name: trimmedName,
+          description: templateDescription.trim() || null,
+          visibility_scope: templateVisibility,
+        })
+        .eq("id", editingTemplate.id);
+      if (error) throw error;
+      setShowEditTemplateDialog(false);
+      setEditingTemplate(null);
+      toast({ title: "Template updated", description: "Template changes saved." });
+      loadCampaigns();
+    } catch (error) {
+      console.error("Error updating template:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to update template.",
+      });
+    }
+  };
+
+  const handleDeleteTemplate = async (template: CampaignTemplate) => {
+    if (!confirm(`Delete template "${template.name}"?`)) return;
+
+    if (bypassAuth) {
+      const updated = readLocalCampaignTemplates().filter((item) => item.id !== template.id);
+      writeLocalCampaignTemplates(updated);
+      setTemplates(updated);
+      toast({ title: "Template deleted", description: "Template removed." });
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from("campaign_templates").delete().eq("id", template.id);
+      if (error) throw error;
+      toast({ title: "Template deleted", description: "Template removed." });
+      loadCampaigns();
+    } catch (error) {
+      console.error("Error deleting template:", error);
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to delete template.",
+      });
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -293,19 +536,29 @@ export function CampaignsManager() {
                 Create and manage surveys, questionnaires, and feedback forms
               </CardDescription>
             </div>
-            <Button
-              className="w-full sm:w-auto"
-              onClick={() => {
-                if (hasSavedWizardDraft()) {
-                  setShowDraftDecision(true);
-                  return;
-                }
-                navigate("/admin/campaigns/builder");
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Create Campaign
-            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => setShowUseTemplateDialog(true)}
+              >
+                <CopyPlus className="mr-2 h-4 w-4" />
+                Use Template
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  if (hasSavedWizardDraft()) {
+                    setShowDraftDecision(true);
+                    return;
+                  }
+                  navigate("/admin/campaigns/builder");
+                }}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Create Campaign
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -389,7 +642,15 @@ export function CampaignsManager() {
                           {formatDateOnly(campaign.end_date)}
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenSaveTemplate(campaign)}
+                              title="Save as template"
+                            >
+                              <CopyPlus className="h-4 w-4" />
+                            </Button>
                             <Button
                               variant="ghost"
                               size="icon"
@@ -410,6 +671,7 @@ export function CampaignsManager() {
                               variant="ghost"
                               size="icon"
                               onClick={() => handleDelete(campaign)}
+                              title="Delete campaign"
                             >
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
@@ -455,6 +717,198 @@ export function CampaignsManager() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showSaveTemplateDialog} onOpenChange={setShowSaveTemplateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Campaign as Template</DialogTitle>
+            <DialogDescription>
+              Create a reusable template from this campaign for future campaigns.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="template-name">Template name</Label>
+            <Input
+              id="template-name"
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+              placeholder="Template name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="template-description">Template description</Label>
+            <Input
+              id="template-description"
+              value={templateDescription}
+              onChange={(event) => setTemplateDescription(event.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Visibility</Label>
+            <Select
+              value={templateVisibility}
+              onValueChange={(value) =>
+                setTemplateVisibility(value as CampaignTemplateVisibility)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="organization">Organization-wide</SelectItem>
+                <SelectItem value="personal">Personal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowSaveTemplateDialog(false);
+                setSelectedCampaignForTemplate(null);
+                setTemplateName("");
+                setTemplateDescription("");
+                setTemplateVisibility("organization");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTemplate}>Save Template</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showUseTemplateDialog} onOpenChange={setShowUseTemplateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Choose a Template</DialogTitle>
+            <DialogDescription>
+              Start a new campaign with an existing template.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[320px] space-y-2 overflow-auto">
+            {templates.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No templates yet.</p>
+            ) : (
+              templates.map((template) => (
+                <div
+                  key={template.id}
+                  className="flex items-center justify-between gap-3 rounded-md border p-3"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{template.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {template.questions.length} questions
+                    </p>
+                    {template.description ? (
+                      <p className="truncate text-xs text-muted-foreground">
+                        {template.description}
+                      </p>
+                    ) : null}
+                    <div className="mt-1 flex items-center gap-1">
+                      <Badge variant="outline" className="text-[10px]">
+                        {template.visibility_scope === "personal"
+                          ? "Personal"
+                          : "Organization"}
+                      </Badge>
+                      {template.created_by_user_id === user?.id ? (
+                        <Badge variant="secondary" className="text-[10px]">
+                          Mine
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button size="sm" onClick={() => handleUseTemplate(template)}>
+                      Use
+                    </Button>
+                    {canManageTemplate(template) ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenEditTemplate(template)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteTemplate(template)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showEditTemplateDialog} onOpenChange={setShowEditTemplateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Template</DialogTitle>
+            <DialogDescription>
+              Update template details and visibility.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="edit-template-name">Template name</Label>
+            <Input
+              id="edit-template-name"
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+              placeholder="Template name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-template-description">Template description</Label>
+            <Input
+              id="edit-template-description"
+              value={templateDescription}
+              onChange={(event) => setTemplateDescription(event.target.value)}
+              placeholder="Optional description"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Visibility</Label>
+            <Select
+              value={templateVisibility}
+              onValueChange={(value) =>
+                setTemplateVisibility(value as CampaignTemplateVisibility)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="organization">Organization-wide</SelectItem>
+                <SelectItem value="personal">Personal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowEditTemplateDialog(false);
+                setEditingTemplate(null);
+                setTemplateName("");
+                setTemplateDescription("");
+                setTemplateVisibility("organization");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleUpdateTemplate}>Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

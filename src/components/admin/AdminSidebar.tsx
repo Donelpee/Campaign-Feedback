@@ -185,7 +185,7 @@ export function AdminSidebar({
       className="[&_[data-sidebar=sidebar]]:bg-[linear-gradient(180deg,#1e3a50_0%,#1a3245_48%,#162c3e_100%)] [&_[data-sidebar=sidebar]]:border-r [&_[data-sidebar=sidebar]]:border-r-[#2b4860] [&_[data-sidebar=sidebar]]:rounded-none [&_[data-sidebar=sidebar]]:shadow-none"
     >
       <SidebarHeader className="border-b border-[#2b4860] bg-[radial-gradient(circle_at_top,rgba(100,184,218,0.2),transparent_58%),linear-gradient(180deg,rgba(35,71,95,0.94)_0%,rgba(28,57,77,0.98)_100%)]">
-        <div className="flex items-center justify-center px-2 py-5">
+        <div className="flex items-center justify-center px-2 py-3.5">
           <NkowaLogo
             align="center"
             className="w-full max-w-[260px]"
@@ -197,7 +197,7 @@ export function AdminSidebar({
         </div>
       </SidebarHeader>
 
-      <SidebarContent className="gap-0 py-1">
+      <SidebarContent className="gap-0 py-0.5">
         {visibleNavigation.length > 0 && (
           <SidebarGroup className="pb-1">
             <SidebarGroupLabel className="uppercase tracking-wide">
@@ -211,7 +211,7 @@ export function AdminSidebar({
                       asChild
                       isActive={location.pathname === item.url}
                       variant="default"
-                      size="lg"
+                      size="default"
                       className="rounded-xl bg-transparent text-[#e7f5ff] hover:bg-white/12 data-[active=true]:bg-[#4fc1d8]/25 data-[active=true]:text-white data-[active=true]:shadow-[inset_0_0_0_1px_rgba(159,232,255,0.45)]"
                     >
                       <Link to={item.url}>
@@ -228,8 +228,8 @@ export function AdminSidebar({
       </SidebarContent>
 
       <SidebarFooter className="border-t border-[#2b4860]">
-        <div className="space-y-3 px-2 py-4">
-          <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 p-3">
+        <div className="space-y-2 px-2 py-2.5">
+          <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/10 p-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/25">
               <span className="text-sm font-medium text-white">
                 {user?.email?.charAt(0).toUpperCase()}

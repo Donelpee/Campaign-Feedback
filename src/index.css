@@ -855,7 +855,7 @@
   }
 
   .admin-theme [data-sidebar="content"]::-webkit-scrollbar-thumb {
-    min-height: 96px;
+    min-height: 180px;
     border-radius: 999px;
     border: 2px solid rgba(18, 49, 69, 0.45);
     background: linear-gradient(180deg, rgba(146, 218, 240, 0.95), rgba(94, 176, 212, 0.9));

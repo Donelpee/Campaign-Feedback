@@ -45,7 +45,6 @@ import {
   Building2,
   Megaphone,
   ArrowRight,
-  Eye,
   Gauge,
   Percent,
   Activity,
@@ -174,7 +173,7 @@ interface CampaignSummary {
   completionRate: number;
 }
 
-const RESPONSE_PAGE_SIZE = 50;
+const RESPONSE_PAGE_SIZE = 10;
 
 const questionTypeLabels: Record<string, string> = {
   rating: "Rating",
@@ -745,6 +744,53 @@ export function ResponsesViewer() {
       (response) => response.link.campaign.id === filterCampaign,
     );
   }, [analyticsScopeResponses, filterCampaign]);
+  const tableResponses = useMemo(
+    () => filteredResponses.slice(0, RESPONSE_PAGE_SIZE),
+    [filteredResponses],
+  );
+  const tableHeaderCampaign = useMemo(() => {
+    if (filterCampaign !== "all") {
+      const selected =
+        campaignsForCompany.find((c) => c.id === filterCampaign) || null;
+      if (selected) return selected;
+    }
+    if (filteredResponses.length === 0) return null;
+    const firstCampaign = filteredResponses[0].link.campaign;
+    const isSingleCampaign = filteredResponses.every(
+      (response) => response.link.campaign.id === firstCampaign.id,
+    );
+    return isSingleCampaign ? firstCampaign : null;
+  }, [filteredResponses, campaignsForCompany, filterCampaign]);
+  const tableColumnLabels = useMemo(() => {
+    if (!tableHeaderCampaign) {
+      return {
+        satisfaction: "Satisfaction",
+        quality: "Quality",
+        recommendation: "Recommendation",
+        improvement: "Improvement Areas",
+      };
+    }
+
+    const shorten = (text: string, max = 34) =>
+      text.length > max ? `${text.slice(0, max - 1)}...` : text;
+
+    const scaleQuestion = getQuestionByType(tableHeaderCampaign, "scale");
+    const ratingQuestion = getQuestionByType(tableHeaderCampaign, "rating");
+    const npsQuestion = getQuestionByType(tableHeaderCampaign, "nps");
+    const multipleChoiceQuestion = getQuestionByType(
+      tableHeaderCampaign,
+      "multiple_choice",
+    );
+
+    return {
+      satisfaction: shorten(scaleQuestion?.question || "Satisfaction"),
+      quality: shorten(ratingQuestion?.question || "Quality"),
+      recommendation: shorten(npsQuestion?.question || "Recommendation"),
+      improvement: shorten(
+        multipleChoiceQuestion?.question || "Improvement Areas",
+      ),
+    };
+  }, [tableHeaderCampaign]);
 
   const trendData = useMemo(() => {
     const map = new Map<string, number>();
@@ -786,10 +832,6 @@ export function ResponsesViewer() {
     [campaignSummaries],
   );
   const isViewerLoading = isLoading || isLoadingAnalyticsScope;
-
-  const totalPages = Math.max(1, Math.ceil(totalResponsesCount / RESPONSE_PAGE_SIZE));
-  const pageStart = totalResponsesCount === 0 ? 0 : (currentPage - 1) * RESPONSE_PAGE_SIZE + 1;
-  const pageEnd = Math.min(currentPage * RESPONSE_PAGE_SIZE, totalResponsesCount);
 
   const periodDelta = useMemo(() => {
     const now = new Date();
@@ -2330,17 +2372,16 @@ export function ResponsesViewer() {
                       <TableHead>Company</TableHead>
                       <TableHead>Campaign</TableHead>
                       <TableHead className="text-center">
-                        Satisfaction
+                        {tableColumnLabels.satisfaction}
                       </TableHead>
-                      <TableHead>Quality</TableHead>
-                      <TableHead>Recommendation</TableHead>
-                      <TableHead>Improvement Areas</TableHead>
+                      <TableHead>{tableColumnLabels.quality}</TableHead>
+                      <TableHead>{tableColumnLabels.recommendation}</TableHead>
+                      <TableHead>{tableColumnLabels.improvement}</TableHead>
                       <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Details</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredResponses.map((response) => (
+                    {tableResponses.map((response) => (
                       (() => {
                         const metrics = getDisplayMetrics(response);
                         const shownAreas =
@@ -2416,50 +2457,17 @@ export function ResponsesViewer() {
                             <TableCell className="text-muted-foreground text-sm">
                               {formatResponseDate(response.created_at)}
                             </TableCell>
-                            <TableCell className="text-right">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => setSelectedResponse(response)}
-                                title="View full response"
-                              >
-                                <Eye className="h-4 w-4" />
-                              </Button>
-                            </TableCell>
                           </TableRow>
                         );
                       })()
                     ))}
                   </TableBody>
                 </Table>
-                {totalResponsesCount > RESPONSE_PAGE_SIZE && (
-                  <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      Showing {pageStart}-{pageEnd} of {totalResponsesCount} responses
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                        disabled={currentPage === 1 || isViewerLoading}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm text-muted-foreground">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                        disabled={currentPage >= totalPages || isViewerLoading}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                <div className="mt-4 border-t pt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Showing latest {Math.min(RESPONSE_PAGE_SIZE, filteredResponses.length)} responses in this table. Use CSV, PDF, or Excel for deeper insights across all responses.
+                  </p>
+                </div>
               </div>
             )}
           </CardContent>

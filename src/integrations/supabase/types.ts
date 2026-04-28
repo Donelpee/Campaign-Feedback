@@ -227,6 +227,56 @@ export type Database = {
           },
         ];
       };
+      campaign_templates: {
+        Row: {
+          campaign_type: string;
+          created_at: string;
+          created_by_user_id: string | null;
+          description: string | null;
+          id: string;
+          name: string;
+          questions: Json;
+          source_campaign_id: string | null;
+          tenant_id: string;
+          updated_at: string;
+          visibility_scope: string;
+        };
+        Insert: {
+          campaign_type?: string;
+          created_at?: string;
+          created_by_user_id?: string | null;
+          description?: string | null;
+          id?: string;
+          name: string;
+          questions?: Json;
+          source_campaign_id?: string | null;
+          tenant_id?: string;
+          updated_at?: string;
+          visibility_scope?: string;
+        };
+        Update: {
+          campaign_type?: string;
+          created_at?: string;
+          created_by_user_id?: string | null;
+          description?: string | null;
+          id?: string;
+          name?: string;
+          questions?: Json;
+          source_campaign_id?: string | null;
+          tenant_id?: string;
+          updated_at?: string;
+          visibility_scope?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "campaign_templates_source_campaign_id_fkey";
+            columns: ["source_campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "campaigns";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       companies: {
         Row: {
           created_at: string;

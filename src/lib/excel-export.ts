@@ -118,10 +118,10 @@ export async function exportToExcel(
       value: campaign.responses,
     })),
     "Responses by Campaign",
-    760,
-    340,
+    980,
+    430,
   );
-  addChartImage(workbook, summary, responseChart, 0, 10, 540, 250);
+  addChartImage(workbook, summary, responseChart, 0, 10, 760, 330);
 
   const rateChart = generateBarChart(
     campaignReports.map((campaign) => ({
@@ -129,10 +129,10 @@ export async function exportToExcel(
       value: Number(campaign.responseRate.toFixed(1)),
     })),
     "Response Rate by Campaign",
-    760,
-    340,
+    980,
+    430,
   );
-  addChartImage(workbook, summary, rateChart, 3.1, 10, 540, 250);
+  addChartImage(workbook, summary, rateChart, 0, 26, 760, 330);
 
   const sentimentParts = [
     { label: "Positive", value: insights.sentiment.positive },
@@ -140,8 +140,13 @@ export async function exportToExcel(
     { label: "Negative", value: insights.sentiment.negative },
   ].filter((item) => item.value > 0);
   if (sentimentParts.length > 0) {
-    const sentimentChart = generatePieChart(sentimentParts, "Sentiment Mix", 760, 340);
-    addChartImage(workbook, summary, sentimentChart, 0, 24, 540, 250);
+    const sentimentChart = generatePieChart(
+      sentimentParts,
+      "Sentiment Mix",
+      980,
+      430,
+    );
+    addChartImage(workbook, summary, sentimentChart, 0, 42, 760, 330);
   }
 
   const overview = workbook.addWorksheet("Campaign Overview");

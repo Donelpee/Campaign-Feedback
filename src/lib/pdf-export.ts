@@ -60,20 +60,28 @@ function renderQuestionChart(
     return null;
   }
 
+  const longestLabel = question.chartData.reduce(
+    (max, item) => Math.max(max, item.label.length),
+    0,
+  );
+  const denseData = question.chartData.length > 8 || longestLabel > 18;
+  const chartWidth = 820;
+  const chartHeight = denseData ? 430 : 340;
+
   if (question.chartType === "pie") {
     return chartHelpers.generatePieChart(
       question.chartData,
       question.question.slice(0, 55),
-      760,
-      320,
+      chartWidth,
+      chartHeight,
     );
   }
 
   return chartHelpers.generateBarChart(
     question.chartData,
     question.question.slice(0, 55),
-    760,
-    320,
+    chartWidth,
+    chartHeight,
   );
 }
 
@@ -131,8 +139,21 @@ function addQuestionSection(
 
   const chartImage = renderQuestionChart(question);
   if (chartImage) {
-    doc.addImage(`data:image/png;base64,${chartImage}`, "PNG", margin, currentY + 12, contentWidth, 190);
-    currentY += 214;
+    const longestLabel = question.chartData.reduce(
+      (max, item) => Math.max(max, item.label.length),
+      0,
+    );
+    const denseData = question.chartData.length > 8 || longestLabel > 18;
+    const chartHeight = denseData ? 250 : 200;
+    doc.addImage(
+      `data:image/png;base64,${chartImage}`,
+      "PNG",
+      margin,
+      currentY + 12,
+      contentWidth,
+      chartHeight,
+    );
+    currentY += chartHeight + 24;
   } else {
     currentY += 10;
   }
