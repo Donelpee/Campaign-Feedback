@@ -139,11 +139,12 @@ export default function AdminCampaignBuilder() {
       );
 
       if (data.campaignId) {
-        const { data: duplicateByName, error: duplicateByNameError } =
+          const { data: duplicateByName, error: duplicateByNameError } =
           await supabase
             .from("campaigns")
             .select("id")
             .eq("name", trimmedName)
+            .eq("company_id", data.selectedCompanyId)
             .neq("id", data.campaignId)
             .maybeSingle();
         if (duplicateByNameError) throw duplicateByNameError;
@@ -252,11 +253,13 @@ export default function AdminCampaignBuilder() {
         return;
       }
 
-      const { data: duplicateByName, error: duplicateByNameError } = await supabase
-        .from("campaigns")
-        .select("id")
-        .eq("name", trimmedName)
-        .maybeSingle();
+      const { data: duplicateByName, error: duplicateByNameError } =
+        await supabase
+          .from("campaigns")
+          .select("id")
+          .eq("name", trimmedName)
+          .eq("company_id", data.selectedCompanyId)
+          .maybeSingle();
       if (duplicateByNameError) throw duplicateByNameError;
       if (duplicateByName) {
         throw new Error("A campaign with this exact name already exists.");

@@ -4,6 +4,18 @@ import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+function getComponentDisplayName(type: unknown): string | undefined {
+  if (typeof type === "string" || typeof type === "number" || type === null || type === undefined) {
+    return undefined;
+  }
+  if (typeof type === "object" || typeof type === "function") {
+    const maybeNamed = type as { displayName?: unknown; name?: unknown };
+    if (typeof maybeNamed.displayName === "string") return maybeNamed.displayName;
+    if (typeof maybeNamed.name === "string") return maybeNamed.name;
+  }
+  return undefined;
+}
+
 const Dialog = DialogPrimitive.Root;
 
 const DialogTrigger = DialogPrimitive.Trigger;
@@ -34,22 +46,23 @@ const DialogContent = React.forwardRef<
   // Check if children already include a DialogTitle
   let hasTitle = false;
   React.Children.forEach(children, (child) => {
+    const childName = React.isValidElement(child) ? getComponentDisplayName(child.type) : undefined;
     if (
-      React.isValidElement(child) &&
-      (child.type?.displayName === "DialogHeader" ||
-        child.type?.displayName === "DialogTitle")
+      childName === "DialogHeader" ||
+      childName === "DialogTitle"
     ) {
       hasTitle = true;
     }
     // If DialogHeader, check its children for DialogTitle
     if (
       React.isValidElement(child) &&
-      child.type?.displayName === "DialogHeader"
+      getComponentDisplayName(child.type) === "DialogHeader"
     ) {
-      React.Children.forEach(child.props.children, (subChild) => {
+      const headerChild = child as React.ReactElement<{ children?: React.ReactNode }>;
+      React.Children.forEach(headerChild.props.children, (subChild) => {
         if (
           React.isValidElement(subChild) &&
-          subChild.type?.displayName === "DialogTitle"
+          getComponentDisplayName(subChild.type) === "DialogTitle"
         ) {
           hasTitle = true;
         }
@@ -93,7 +106,6 @@ const DialogContent = React.forwardRef<
     </DialogPortal>
   );
 });
-DialogContent.displayName = DialogPrimitive.Content.displayName;
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({

@@ -147,9 +147,7 @@ export function SystemHealthMonitor() {
   });
 
   const applyFilters = useCallback(
-    (
-      query: ReturnType<typeof supabase.from<"system_health_events", SystemHealthEvent>>,
-    ) => {
+    (query: ReturnType<typeof supabase.from>) => {
       let nextQuery = query;
       const searchTerm = sanitizeSearchTerm(search);
 

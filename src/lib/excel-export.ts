@@ -7,10 +7,11 @@ import {
   type CampaignReportBrief,
   type ExportResponseData,
 } from "./reporting-exports";
+import type { Cell, Workbook, Worksheet } from "exceljs";
 
 function addChartImage(
-  workbook: ExcelJS.Workbook,
-  sheet: ExcelJS.Worksheet,
+  workbook: Workbook,
+  sheet: Worksheet,
   base64: string,
   col: number,
   row: number,
@@ -21,7 +22,7 @@ function addChartImage(
   sheet.addImage(imageId, { tl: { col, row }, ext: { width, height } });
 }
 
-function styleHeader(cell: ExcelJS.Cell) {
+function styleHeader(cell: Cell) {
   cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
   cell.fill = {
     type: "pattern",
@@ -31,7 +32,7 @@ function styleHeader(cell: ExcelJS.Cell) {
   cell.alignment = { vertical: "middle", horizontal: "center" };
 }
 
-function styleSection(cell: ExcelJS.Cell) {
+function styleSection(cell: Cell) {
   cell.font = { bold: true, size: 13, color: { argb: "FF0F172A" } };
   cell.fill = {
     type: "pattern",

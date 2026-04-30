@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import {
   Card,
   CardContent,
@@ -381,7 +382,7 @@ export function CampaignsManager() {
           description: newTemplate.description,
           campaign_type: newTemplate.campaign_type,
           visibility_scope: newTemplate.visibility_scope,
-          questions: serializedSurvey,
+          questions: serializedSurvey as unknown as Json,
           source_campaign_id: newTemplate.source_campaign_id || null,
         },
       ]);

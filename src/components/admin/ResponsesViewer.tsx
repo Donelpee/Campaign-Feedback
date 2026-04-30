@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { Json } from "@/integrations/supabase/types";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Card,
@@ -143,7 +144,7 @@ interface ResponsePageRow {
   campaign_id: string;
   campaign_name: string;
   campaign_type: string;
-  campaign_questions: Campaign["questions"];
+  campaign_questions: Json;
   total_count: number;
 }
 
@@ -478,7 +479,7 @@ export function ResponsesViewer() {
       if (responsesRes.error) throw responsesRes.error;
       if (summaryRes.error) throw summaryRes.error;
 
-      const pageRows = (responsesRes.data || []) as ResponsePageRow[];
+      const pageRows = (responsesRes.data || []) as unknown as ResponsePageRow[];
       const summaryData = (summaryRes.data || {}) as {
         analytics?: Partial<AnalyticsSummary>;
         campaigns?: CampaignSummary[];
@@ -540,7 +541,7 @@ export function ResponsesViewer() {
 
         if (error) throw error;
 
-        const pageRows = (data || []) as ResponsePageRow[];
+        const pageRows = (data || []) as unknown as ResponsePageRow[];
         totalCount = pageRows[0]?.total_count || totalCount;
         scopedRows.push(...pageRows.map(mapResponsePageRow));
         offset += pageRows.length;
@@ -606,7 +607,7 @@ export function ResponsesViewer() {
 
       setCompanies((companiesRes.data || []) as Company[]);
       setLinks(
-        ((linksRes.data || []) as RawLinkRow[]).map((row) => {
+        ((linksRes.data || []) as unknown as RawLinkRow[]).map((row) => {
           const survey = normalizeCampaignSurvey(row.campaign.questions);
           return {
             id: row.id,

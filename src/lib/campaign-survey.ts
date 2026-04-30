@@ -26,11 +26,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isSurveyDefinition(value: unknown): value is CampaignSurveyDefinition {
+  const survey = value as unknown as CampaignSurveyDefinition;
   return Boolean(
     isRecord(value) &&
-      (value as CampaignSurveyDefinition).version === 2 &&
-      Array.isArray((value as CampaignSurveyDefinition).sections) &&
-      Array.isArray((value as CampaignSurveyDefinition).questions),
+      survey.version === 2 &&
+      Array.isArray(survey.sections) &&
+      Array.isArray(survey.questions),
   );
 }
 
@@ -188,7 +189,7 @@ export function normalizeCampaignSurvey(input: CampaignSurveyInput): {
     const fallbackSectionId = sections[0].id;
     const questions = input.questions.filter(isRecord).map((question) =>
       normalizeQuestion(
-        question as CampaignQuestion,
+        question as unknown as CampaignQuestion,
         typeof question.sectionId === "string" && validSectionIds.has(question.sectionId)
           ? question.sectionId
           : fallbackSectionId,
@@ -201,7 +202,7 @@ export function normalizeCampaignSurvey(input: CampaignSurveyInput): {
     const section = createDefaultSection(0);
     const questions = input
       .filter(isRecord)
-      .map((question) => normalizeQuestion(question as CampaignQuestion, section.id));
+      .map((question) => normalizeQuestion(question as unknown as CampaignQuestion, section.id));
     return {
       sections: [section],
       questions,

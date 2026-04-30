@@ -1145,7 +1145,7 @@ export function StepQuestions({
         <div className="lg:hidden sticky bottom-4 z-20">
           <Card className="cw-soft-panel border-slate-200/90 shadow-[0_16px_35px_rgba(15,23,42,0.16)]">
             <CardContent className="grid grid-cols-2 gap-2 p-3">
-              <Button type="button" onClick={handleAddQuestion}>
+              <Button type="button" onClick={() => handleAddQuestion()}>
                 <Plus className="mr-2 h-4 w-4" />
                 Add Question
               </Button>
