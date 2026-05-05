@@ -956,17 +956,58 @@ export default function FeedbackForm() {
     );
   };
 
+  const focusQuestionCard = useCallback((questionId: string) => {
+    const elementId = `feedback-question-${questionId}`;
+    const target = document.getElementById(elementId);
+    if (!target) return;
+
+    target.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+    target.focus({ preventScroll: true });
+  }, []);
+
+  const focusMissingQuestion = useCallback(
+    (missingQuestion: CampaignQuestion) => {
+      const sectionIndex = visibleSections.findIndex((section) =>
+        section.questions.some((question) => question.id === missingQuestion.id),
+      );
+
+      if (sectionIndex >= 0 && sectionIndex !== currentSectionIndex) {
+        const activeSectionId = activeSection?.id;
+        if (activeSectionId) {
+          setSectionHistory((previous) => [...previous, activeSectionId]);
+        }
+        setCurrentSectionIndex(sectionIndex);
+        setPendingTargetQuestionId(missingQuestion.id);
+        return;
+      }
+
+      window.requestAnimationFrame(() => {
+        focusQuestionCard(missingQuestion.id);
+      });
+    },
+    [
+      activeSection?.id,
+      currentSectionIndex,
+      focusQuestionCard,
+      visibleSections,
+    ],
+  );
+
   const validateDynamicQuestions = (questionsToValidate = visibleDynamicQuestions) => {
     if (!hasDynamicQuestions || !linkData) return true;
 
-    const missingRequired = questionsToValidate.some((question) =>
+    const missingQuestion = questionsToValidate.find((question) =>
       isRequiredQuestionMissing(question),
     );
 
-    if (missingRequired) {
+    if (missingQuestion) {
       setSubmitError(
         "Please complete all required questions and add details for any Other selections before submitting.",
       );
+      focusMissingQuestion(missingQuestion);
       return false;
     }
 

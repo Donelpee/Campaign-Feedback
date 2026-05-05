@@ -57,6 +57,7 @@ import {
   TrendingDown,
   Minus,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { FileSpreadsheet } from "lucide-react";
 import type {
@@ -652,6 +653,54 @@ export function ResponsesViewer() {
       setIsLoading(false);
     }
   }, [loadAnalyticsScopeResponses, loadResponseData, loadStaticData]);
+
+  const handleDeleteResponse = useCallback(
+    async (response: ResponseWithDetails) => {
+      const shouldDelete = window.confirm(
+        `Delete this response from ${response.link.company.name} (${response.link.campaign.name})? This action cannot be undone.`,
+      );
+      if (!shouldDelete) return;
+
+      try {
+        const { error } = await supabase
+          .from("feedback_responses")
+          .delete()
+          .eq("id", response.id);
+
+        if (error) throw error;
+
+        if (selectedResponse?.id === response.id) {
+          setSelectedResponse(null);
+        }
+
+        toast({
+          title: "Response deleted",
+          description: "The response was deleted successfully.",
+        });
+
+        await Promise.all([loadResponseData(), loadAnalyticsScopeResponses()]);
+      } catch (error) {
+        console.error("Error deleting response:", error);
+        void reportSystemHealthEvent({
+          area: "admin_responses",
+          eventType: "response_delete_failed",
+          severity: "error",
+          message: getErrorMessage(error, "Failed to delete response"),
+          metadata: {
+            responseId: response.id,
+            companyName: response.link.company.name,
+            campaignName: response.link.campaign.name,
+          },
+        });
+        toast({
+          variant: "destructive",
+          title: "Delete failed",
+          description: getErrorMessage(error, "Failed to delete response."),
+        });
+      }
+    },
+    [loadAnalyticsScopeResponses, loadResponseData, selectedResponse?.id, toast],
+  );
 
   useEffect(() => {
     setIsLoading(true);
@@ -2379,6 +2428,7 @@ export function ResponsesViewer() {
                       <TableHead>{tableColumnLabels.recommendation}</TableHead>
                       <TableHead>{tableColumnLabels.improvement}</TableHead>
                       <TableHead>Date</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2457,6 +2507,18 @@ export function ResponsesViewer() {
                             </TableCell>
                             <TableCell className="text-muted-foreground text-sm">
                               {formatResponseDate(response.created_at)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => void handleDeleteResponse(response)}
+                                aria-label={`Delete response from ${response.link.company.name}`}
+                                title="Delete response"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
                             </TableCell>
                           </TableRow>
                         );
