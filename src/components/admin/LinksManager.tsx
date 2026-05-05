@@ -124,6 +124,22 @@ function slugifyCompanyName(name: string): string {
     .replace(/^-|-$/g, "");
 }
 
+function isMissingCompanySlugColumnError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+
+  const maybeCode = "code" in error ? (error as { code?: unknown }).code : undefined;
+  const maybeMessage =
+    "message" in error ? (error as { message?: unknown }).message : undefined;
+  const message =
+    typeof maybeMessage === "string" ? maybeMessage.toLowerCase() : "";
+
+  return (
+    maybeCode === "PGRST204" &&
+    message.includes("company_slug") &&
+    message.includes("company_campaign_links")
+  );
+}
+
 function isCampaignActiveNow(startDate: string, endDate: string): boolean {
   const now = new Date();
   const start = parseDateOnlyStart(startDate);
@@ -304,18 +320,45 @@ export function LinksManager() {
       );
 
       let created = false;
+      let canWriteCompanySlug = true;
       for (let attempt = 0; attempt < 5 && !created; attempt++) {
         const uniqueCode = generateUniqueCode();
-        const { error } = await supabase.from("company_campaign_links").insert({
+        const payload: Record<string, string | null> = {
           company_id: companyIdForLink,
           campaign_id: selectedCampaign,
           unique_code: uniqueCode,
-          company_slug: companySlugForLink || null,
-        });
+        };
+        if (canWriteCompanySlug) {
+          payload.company_slug = companySlugForLink || null;
+        }
+
+        const { error } = await supabase.from("company_campaign_links").insert(payload);
 
         if (!error) {
           created = true;
           break;
+        }
+
+        if (isMissingCompanySlugColumnError(error) && canWriteCompanySlug) {
+          canWriteCompanySlug = false;
+          const { error: fallbackError } = await supabase
+            .from("company_campaign_links")
+            .insert({
+              company_id: companyIdForLink,
+              campaign_id: selectedCampaign,
+              unique_code: uniqueCode,
+            });
+
+          if (!fallbackError) {
+            created = true;
+            break;
+          }
+
+          if (fallbackError.code === "23505") {
+            continue;
+          }
+
+          throw fallbackError;
         }
 
         if (error.code !== "23505") {
