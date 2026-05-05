@@ -114,6 +114,16 @@ function generateUniqueCode(): string {
   return code;
 }
 
+function slugifyCompanyName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function isCampaignActiveNow(startDate: string, endDate: string): boolean {
   const now = new Date();
   const start = parseDateOnlyStart(startDate);
@@ -289,6 +299,9 @@ export function LinksManager() {
       if (selectedCampaignRecord.company_id && selectedCampaignRecord.company_id !== selectedCompany) {
         throw new Error("This campaign belongs to a different company. Select the matching company or re-open the campaign and confirm its company.");
       }
+      const companySlugForLink = slugifyCompanyName(
+        companies.find((company) => company.id === companyIdForLink)?.name || "",
+      );
 
       let created = false;
       for (let attempt = 0; attempt < 5 && !created; attempt++) {
@@ -297,6 +310,7 @@ export function LinksManager() {
           company_id: companyIdForLink,
           campaign_id: selectedCampaign,
           unique_code: uniqueCode,
+          company_slug: companySlugForLink || null,
         });
 
         if (!error) {
@@ -531,8 +545,16 @@ export function LinksManager() {
     }
   };
 
-  const handleCopyLink = (code: string) => {
-    const url = `${window.location.origin}/feedback/${code}`;
+  const buildFeedbackUrl = (link: LinkWithDetails, preview = false) => {
+    const companySlug = link.company_slug || slugifyCompanyName(link.company.name);
+    const path = companySlug
+      ? `/feedback/${link.unique_code}/${companySlug}`
+      : `/feedback/${link.unique_code}`;
+    return preview ? `${path}?preview=1` : path;
+  };
+
+  const handleCopyLink = (link: LinkWithDetails) => {
+    const url = `${window.location.origin}${buildFeedbackUrl(link)}`;
     navigator.clipboard.writeText(url);
     toast({
       title: "Copied!",
@@ -769,7 +791,7 @@ export function LinksManager() {
                           <div className="space-y-0.5">
                             <p className="font-medium">{link.campaign.name}</p>
                             <p className="text-xs text-muted-foreground">
-                              /feedback/{link.unique_code}
+                              {buildFeedbackUrl(link)}
                             </p>
                           </div>
                         </TableCell>
@@ -800,7 +822,7 @@ export function LinksManager() {
                               size="icon"
                               onClick={() =>
                                 window.open(
-                                  `/feedback/${link.unique_code}?preview=1`,
+                                  buildFeedbackUrl(link, true),
                                   "_blank",
                                 )
                               }
@@ -811,7 +833,7 @@ export function LinksManager() {
                             <Button
                               variant="ghost"
                               size="icon"
-                              onClick={() => handleCopyLink(link.unique_code)}
+                              onClick={() => handleCopyLink(link)}
                               title="Copy link"
                               disabled={!link.is_active}
                             >
@@ -831,7 +853,7 @@ export function LinksManager() {
                               size="icon"
                               onClick={() =>
                                 window.open(
-                                  `/feedback/${link.unique_code}`,
+                                  buildFeedbackUrl(link),
                                   "_blank",
                                 )
                               }

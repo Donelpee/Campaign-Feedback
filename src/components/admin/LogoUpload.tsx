@@ -57,19 +57,19 @@ export function LogoUpload({
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("id")
+        .select("tenant_id")
         .eq("user_id", user.id)
         .maybeSingle();
 
       if (profileError) throw profileError;
-      if (!profile?.id) {
+      if (!profile?.tenant_id) {
         throw new Error("Your account is missing a workspace assignment.");
       }
 
       // Generate unique filename
       const fileExt = file.name.split(".").pop()?.toLowerCase() || "png";
       const fileName = `${crypto.randomUUID()}.${fileExt}`;
-      const filePath = `${profile.id}/logos/${fileName}`;
+      const filePath = `${profile.tenant_id}/logos/${fileName}`;
 
       // Upload to storage
       const { error: uploadError } = await supabase.storage

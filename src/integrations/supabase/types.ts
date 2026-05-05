@@ -317,6 +317,7 @@ export type Database = {
         Row: {
           access_count: number;
           campaign_id: string;
+          company_slug: string | null;
           company_id: string;
           created_at: string;
           id: string;
@@ -326,6 +327,7 @@ export type Database = {
         Insert: {
           access_count?: number;
           campaign_id: string;
+          company_slug?: string | null;
           company_id: string;
           created_at?: string;
           id?: string;
@@ -335,6 +337,7 @@ export type Database = {
         Update: {
           access_count?: number;
           campaign_id?: string;
+          company_slug?: string | null;
           company_id?: string;
           created_at?: string;
           id?: string;

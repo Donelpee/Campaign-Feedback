@@ -144,6 +144,7 @@ export interface CompanyCampaignLink {
   company_id: string;
   campaign_id: string;
   unique_code: string;
+  company_slug?: string | null;
   is_active: boolean;
   access_count: number;
   created_at: string;
